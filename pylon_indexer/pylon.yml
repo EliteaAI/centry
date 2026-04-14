@@ -1,0 +1,76 @@
+#
+# General server config
+#
+
+server:
+  name: ${NAME}
+  path: /
+  host: "0.0.0.0"
+  port: 8080
+  health:
+    healthz: true
+    livez: true
+    readyz: true
+
+#
+# Logging
+#
+log:
+  level: info
+
+#
+# SSL CAs
+#
+# ssl:
+#   certs:
+#   - /ssl/ca.crt
+
+#
+# Pylon DB
+#
+pylon_db:
+  engine_url: sqlite:////data/pylon.db
+
+#
+# Local paths to modules and config
+#
+modules:
+  plugins:
+    provider:
+      type: folder
+      path: /data/plugins
+  #
+  requirements:
+    mode: relaxed
+    activation: bulk
+    extra_index_url: https://download.pytorch.org/whl/cpu
+    cache: /data/cache/pip
+    provider:
+      type: folder
+      path: /data/requirements
+  #
+  config:
+    provider:
+      type: folder
+      path: /data/configs
+  #
+  preload:
+    bootstrap:
+      provider:
+        type: git
+        delete_git_dir: false
+        depth: null
+      source: https://github.com/EliteaAI/bootstrap.git
+      branch: ${ELITEA_RELEASE}
+
+#
+# Environment configuration
+#
+environment:
+  ANONYMIZED_TELEMETRY: "False"
+  TOKENIZERS_PARALLELISM: "false"
+  HF_HOME: /data/cache
+  NLTK_DATA: /data/cache/nltk
+  TRANSFORMERS_CACHE: /data/cache/transformers
+  TIKTOKEN_CACHE_DIR: /data/cache/tiktoken
+  AZURE_DEVOPS_CACHE_DIR: /data/cache/ado

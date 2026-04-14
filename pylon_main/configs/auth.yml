@@ -1,0 +1,7 @@
+auth_mode: rpc
+
+public_rules:
+  - uri: '/forward\-auth/.*'
+  - uri: '/applications/application_icon.*'
+  - uri: '/datasources/datasource_icon.*'
+  - uri: '/prompt_lib/prompt_icon.*'

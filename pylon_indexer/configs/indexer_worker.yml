@@ -1,0 +1,8 @@
+nltk_data: /data/cache/nltk
+tasknode_tmp: /data/cache/tasknode
+
+agent_memory_config:
+  type: postgres
+  connection_string: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/agentstate
+  connection_kwargs:
+    autocommit: true

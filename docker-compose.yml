@@ -1,0 +1,116 @@
+services:
+  redis:
+    image: redis:8.2.4-alpine
+    command: sh -c 'exec redis-server --requirepass $$REDIS_PASSWORD --save 300 1 --dir /data/ --dbfilename dump.rdb'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    env_file:
+      - ./envs/default.env
+      - ./envs/override.env
+    volumes:
+      - redis-data:/data
+    networks:
+      - centry
+
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg18
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    env_file:
+      - ./envs/default.env
+      - ./envs/override.env
+    environment:
+      - PGDATA=/data/pgdata
+    volumes:
+      - postgres-data:/data
+    networks:
+      - centry
+
+  pylon_auth:
+    image: ghcr.io/eliteaai/pylon:1.2.25
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    env_file:
+      - ./envs/default.env
+      - ./envs/override.env
+    environment:
+      - NAME=pylon-auth
+      - PYLON_WEB_RUNTIME=gevent
+      - PYLON_CONFIG_SEED=file:/data/pylon.yml
+    volumes:
+      - ./pylon_auth:/data
+      - ./ssl:/ssl
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - centry
+
+  pylon_main:
+    image: ghcr.io/eliteaai/pylon:1.2.25
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    env_file:
+      - ./envs/default.env
+      - ./envs/override.env
+    environment:
+      - NAME=pylon-main
+      - PYLON_WEB_RUNTIME=gevent
+      - PYLON_CONFIG_SEED=file:/data/pylon.yml
+    volumes:
+      - ./pylon_main:/data
+      - ./ssl:/ssl
+    ports:
+      - "80:8080"
+      # - 443:8443
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - centry
+
+  pylon_indexer:
+    image: ghcr.io/eliteaai/pylon:1.2.25
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    env_file:
+      - ./envs/default.env
+      - ./envs/override.env
+    environment:
+      - NAME=pylon-indexer
+      - PYLON_WEB_RUNTIME=waitress
+      - PYLON_CONFIG_SEED=file:/data/pylon.yml
+    volumes:
+      - ./pylon_indexer:/data
+      - ./ssl:/ssl
+    depends_on:
+      - redis
+    networks:
+      - centry
+
+volumes:
+  redis-data:
+  postgres-data:
+
+networks:
+  centry:

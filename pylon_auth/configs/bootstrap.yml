@@ -1,0 +1,36 @@
+debug: true
+
+
+mesh:
+  event_node:
+    type: ZeroMQEventNode
+    connect_sub: "tcp://pylon_auth:5010"
+    connect_push: "tcp://pylon_auth:5011"
+    topic: mesh
+    hmac_key: mesh
+    hmac_digest: sha512
+    callback_workers: null
+    mute_first_failed_connections: 10
+    log_errors: true
+
+
+plugin_repo:
+- type: elitea_github
+  release: ${ELITEA_RELEASE}
+  add_source_data: true
+  add_head_data: true
+
+
+preordered_plugins:
+- auth_core
+#
+- auth_init
+- auth_mappers
+#
+- auth_form
+- auth_oidc
+- auth_saml
+#
+- auth_idp_rpc
+#
+- tracing
