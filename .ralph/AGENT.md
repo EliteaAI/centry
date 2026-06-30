@@ -265,5 +265,78 @@ test('health check returns ok for all pods', async ({ request }) => {
 - Features validator (`.ralph/features.json`) expected pylon.yml → fixed to shared.yml
 - No Docker available in dev env, so Docker-level integration tests can't run locally
 
+### 2026-06-29: Task 1.2 - RedisServersStorage for MCP State
+- Existing in-memory `ServersStorage` at `utils/mcp_servers_storage.py` — uses two dicts: `project_id_to_server_name_to_server` and `sid_to_project_id`
+- Created `RedisServersStorage` at same path prefix but separate file: `utils/redis_servers_storage.py`
+- Redis key layout: `mcp_servers:{project_id}` (hash: server_name → JSON), `mcp_sid_to_project:{sid}` (string: project_id)
+- Uses `HSETNX` for atomic registration (prevents duplicate registration race)
+- Module accesses Redis via `self.get_redis_client()` method (from `methods/redis_client.py`)
+- The `McpServer` Pydantic model has `model_dump_json()` / `model_validate_json()` for serialization
+- Python 3.9 incompatibility: `models/mcp.py` and `utils/sio_utils.py` use `X | Y` union syntax (3.10+)
+- Test strategy: define compatible Pydantic models in test file; load `redis_servers_storage.py` via `importlib.util.spec_from_file_location` bypassing `__init__.py` chain
+- `validate_all()` uses `SCAN` with cursor to iterate `mcp_sid_to_project:*` keys
+- Module initialization at `module.py:800-801`: `self.servers_storage = ServersStorage()` — will change to `RedisServersStorage(self.get_redis_client())` when feature flag is enabled
+- Test file: `centry/tests/unit/scaling/test_redis_servers_storage.py` (37 tests, 98% coverage)
+
+### 2026-06-29: Task 1.3 - Externalize ASR Session State to Redis
+- ASR module at `sio/asr.py` uses a module-global dict `_sessions` for per-SID VAD state
+- Two session types: "whisper" (VAD buffering + batch API calls) and "realtime" (streaming to indexer via event_node)
+- Whisper sessions hold threading.Lock, bytearray buffer, flush timer — not directly serializable to Redis
+- Design decision: **hybrid approach** — keep local dict for hot-path VAD processing (sub-ms latency needed), externalize config + recovery state to Redis
+  - Local dict: lock, buffer (active frame accumulation), flush_timer, event_node, task_node references
+  - Redis hash `asr_session:{sid}`: type, project_id, model_name, language, VAD state (speech_detected, silent_frames, call_in_flight)
+  - Redis list `asr_buffer:{sid}`: base64-encoded PCM chunks (for recovery only, written at flush boundaries)
+- Session recovery via `_try_recover_session()`: when audio arrives for a SID not in local dict but present in Redis, reconstruct the local session from Redis state
+- Redis client uses `decode_responses=True` (existing pattern), so binary audio is base64-encoded for list storage
+- `MAX_BUFFER_CHUNKS = 200` (LTRIM to bound memory ~60s audio at 300ms/chunk)
+- Module initialization: `init_redis_store(redis_client)` called from module.py during plugin init
+- `on_whisper_call_done()` persists call_in_flight=False to Redis after transcript response
+- The `evict_stale_sessions()` in the store uses SCAN to find idle sessions (TTL handles true abandonment, eviction is proactive)
+- `sio_utils.py` has Python 3.10+ syntax (`str | None`) — tests must mock SioEvents with a fake StrEnum instead of loading the real module
+- Test file: `centry/tests/unit/scaling/test_redis_asr_store.py` (59 tests, 100% coverage on store)
+- Validator pattern updated in features.json: checks for `RedisAsrSessionStore` and `redis_asr_store` imports (not `redis_tools`)
+- event_node and task_node are pylon framework objects — cannot be stored in Redis, must be injected from the SIO handler context during recovery
+
+### 2026-06-29: Task 1.4 - Move callback_tasks dict to Redis
+- In-memory `callback_tasks` dict defined in `module.py:67` as `self.callback_tasks = {}`
+- Used in 3 places: `module.py` (init), `api/v2/predict.py:104`, `api/v2/pipeline_run.py:86` (registration), `methods/task_callbacks.py:48,51` (consumption via `.pop()`)
+- Synchronization mechanism: `not_starting_task_event` (threading.Event) handles the race where task completes before callback is registered (predict clears event, task_status_changed waits on it)
+- For Redis version: synchronization race is solved differently — `pop_callback` retries with wait are still needed in `task_status_changed` because the predict API on another pod may not have written to Redis yet
+- Design: simple Redis string per task_id (not hash) — `callback_tasks:{task_id}` → JSON string with url+headers
+- Uses `GETDEL` (Redis 6.2+) for atomic pop — ensures exactly-once consumption when multiple pods race
+- TTL: 24 hours (DEFAULT_TTL = 86400)
+- `pipeline_run.py` has a `hasattr(self.module, "callback_tasks")` guard (defensive) — when switching to CallbackManager, same pattern applies
+- Test file: `centry/tests/unit/scaling/test_callback_manager.py` (26 tests, 100% coverage)
+- Coverage trick: use `--cov=centry.pylon_main.plugins.elitea_core.utils.callback_manager` (module path) not `--cov=/absolute/path` for dynamic-import test files
+
+### 2026-06-29: Task 1.5 - Move task_logs cache to Redis
+- Implementation file `task_logs_redis.py` already existed (written in a prior iteration)
+- `self.task_logs = {}` in `module.py:71` is the in-memory dict to replace
+- Actual task log caching is in `logging_hub` plugin's `room_cache` dict — separate concern
+- `logging_hub/sio/logs.py` handles `task_logs_subscribe`/`task_logs_unsubscribe` Socket.IO events
+- `logging_hub/methods/logs.py` populates `self.room_cache[room]` with log records, limited by `room_cache_size` (default 100)
+- `TaskLogsRedis` uses Redis sorted set: score=timestamp, member=JSON(record)
+- Methods: `append`, `append_batch`, `get_latest`, `get_all`, `get_since`, `clear`, `count`, `exists`, `set_ttl`
+- TTL: 604800 (7 days), MAX_ENTRIES: 500 (enforced via `zremrangebyrank`)
+- Test file: `centry/tests/unit/scaling/test_task_logs_redis.py` (48 tests, 100% coverage)
+- Module loading pattern: same as task 1.4 — mock pylon.core.tools, use importlib.util.spec_from_file_location
+
+### 2026-06-29: Task 1.6 - Implement User Icons Storage in S3
+- Current icon system: local filesystem at `/data/static/application_icon/{project_id}/{uuid}.png`
+- Served via Flask route `@web.route("/application_icon/<path:sub_path>")` in `routes/application_icon.py`
+- Upload flow: `api/v2/upload_icon.py` → RPC `social_save_image` (PIL resize) → save to disk
+- S3/MinIO infrastructure: `MinioClient` in `shared/tools/minio_client.py` (boto3-backed), bucket prefix: `p--{project_id}.`
+- Artifacts plugin RPCs available: `artifacts_upload` (upload), `artifacts_get_file_data` (download) — NO delete/list RPCs
+- For delete/list: must use `MinioClient` directly (has `remove_file`, `list_files` methods)
+- `MinioClient.list_files()` has no prefix filter — must filter client-side
+- Config: `STORAGE_ENGINE=libcloud` in shared.yml (local driver), but `MinioClient` uses direct boto3 → `MINIO_URL` env var
+- Config values from `config_pydantic.py`: MINIO_URL=http://carrier-minio:9000, MINIO_REGION=us-east-1
+- Icon bucket: `icons` (no project prefix needed since icons already contain `{project_id}/` in key)
+- PIL: JPEG doesn't support RGBA mode; test images for JPEG must use RGB mode
+- No presigned URL support in MinioClient — icons served via application route that proxies from S3
+- Design: `IconStorage(rpc_caller, minio_client)` — RPC for upload/download, MinioClient for delete/list
+- Test file: `centry/tests/unit/scaling/test_icon_storage.py` (48 tests, 100% coverage)
+- Module has zero pylon dependencies (only PIL + stdlib) — can be imported directly in tests without mocking framework
+
 ---
 *Last updated by Ralph iteration*

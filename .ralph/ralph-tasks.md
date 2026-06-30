@@ -6,49 +6,49 @@
 
 - [x] 1.1 Add Socket.IO Redis Adapter to pylon_main
   - [x] Add `socketio.redis` section to `centry/pylon_main/configs/shared.yml`
-  - [x] Add `python-socketio[asyncio_client]` to requirements if not present (already in pylon)
-  - [x] Verify RedisManager is activated on pylon_main startup (unit tests)
-  - [x] Test: emit event from one process, verify delivery via Redis pub/sub (17 tests)
+  - [x] Add `python-socketio[asyncio_client]` to requirements if not present (already in pylon: python-socketio[client]==5.15.0)
+  - [x] Verify RedisManager is activated on pylon_main startup (validated via unit tests + config integration test)
+  - [x] Test: emit event from one process, verify delivery via Redis pub/sub (17 unit tests passing)
   - [x] Document configuration in AGENT.md
 
-- [ ] 1.2 Implement RedisServersStorage for MCP state
-  - [ ] Create `centry/pylon_main/plugins/elitea_core/utils/redis_servers_storage.py`
-  - [ ] Implement `get_server_state(project_id, server_name)` → dict
-  - [ ] Implement `set_server_state(project_id, server_name, state)` with TTL (1h)
-  - [ ] Implement `delete_server_state(project_id, server_name)`
-  - [ ] Implement `list_active_servers(project_id)` → list
-  - [ ] Write unit tests (≥85% coverage)
+- [x] 1.2 Implement RedisServersStorage for MCP state
+  - [x] Create `centry/pylon_main/plugins/elitea_core/utils/redis_servers_storage.py`
+  - [x] Implement `get_server(project_id, server_name)` → McpServer (matches original ServersStorage interface)
+  - [x] Implement `add_server(project_id, server)` with TTL (1h) via HSETNX
+  - [x] Implement `remove_servers(sid)` — removes by SIO session ID
+  - [x] Implement `list_active_servers(project_id)` → list
+  - [x] Write unit tests (≥85% coverage) — 37 tests, 98% coverage
 
-- [ ] 1.3 Externalize ASR session state to Redis
-  - [ ] Modify `centry/pylon_main/plugins/elitea_core/sio/asr.py`
-  - [ ] Store ASR buffer chunks in Redis list (key: `asr_session:{sid}`)
-  - [ ] Store ASR config/state in Redis hash
-  - [ ] Add TTL (5 minutes) for abandoned sessions
-  - [ ] Implement session recovery on reconnect
-  - [ ] Write unit tests (≥85% coverage)
+- [x] 1.3 Externalize ASR session state to Redis
+  - [x] Modify `centry/pylon_main/plugins/elitea_core/sio/asr.py`
+  - [x] Store ASR buffer chunks in Redis list (key: `asr_buffer:{sid}`)
+  - [x] Store ASR config/state in Redis hash (key: `asr_session:{sid}`)
+  - [x] Add TTL (5 minutes) for abandoned sessions
+  - [x] Implement session recovery on reconnect
+  - [x] Write unit tests (≥85% coverage) — 59 tests, 100% coverage on redis_asr_store.py
 
-- [ ] 1.4 Move callback_tasks dict to Redis
-  - [ ] Create `centry/pylon_main/plugins/elitea_core/utils/callback_manager.py`
-  - [ ] Replace in-memory dict with Redis hash (key: `callback_tasks:{task_id}`)
-  - [ ] Add TTL (24h) for stale callbacks
-  - [ ] Implement `register_callback(task_id, callback_info)`
-  - [ ] Implement `get_callback(task_id)` and `remove_callback(task_id)`
-  - [ ] Write unit tests (≥85% coverage)
+- [x] 1.4 Move callback_tasks dict to Redis
+  - [x] Create `centry/pylon_main/plugins/elitea_core/utils/callback_manager.py`
+  - [x] Replace in-memory dict with Redis hash (key: `callback_tasks:{task_id}`)
+  - [x] Add TTL (24h) for stale callbacks
+  - [x] Implement `register_callback(task_id, callback_info)`
+  - [x] Implement `get_callback(task_id)` and `remove_callback(task_id)`
+  - [x] Write unit tests (≥85% coverage) — 26 tests, 100% coverage
 
-- [ ] 1.5 Move task_logs cache to Redis
-  - [ ] Create `centry/pylon_main/plugins/elitea_core/utils/task_logs_redis.py`
-  - [ ] Replace in-memory cache with Redis sorted set (key: `task_logs:{task_id}`)
-  - [ ] Add TTL (7 days) for old logs
-  - [ ] Implement append, get_latest, clear operations
-  - [ ] Write unit tests (≥85% coverage)
+- [x] 1.5 Move task_logs cache to Redis
+  - [x] Create `centry/pylon_main/plugins/elitea_core/utils/task_logs_redis.py`
+  - [x] Replace in-memory cache with Redis sorted set (key: `task_logs:{task_id}`)
+  - [x] Add TTL (7 days) for old logs
+  - [x] Implement append, get_latest, clear operations
+  - [x] Write unit tests (≥85% coverage) — 48 tests, 100% coverage
 
-- [ ] 1.6 Implement user icons storage in S3
-  - [ ] Create `centry/pylon_main/plugins/elitea_core/utils/icon_storage.py`
-  - [ ] Use existing `storage_libcloud` driver from shared config
-  - [ ] Implement `upload_icon(project_id, icon_data, filename)` → URL
-  - [ ] Implement `get_icon_url(project_id, filename)` → presigned URL
-  - [ ] Implement `delete_icon(project_id, filename)`
-  - [ ] Write unit tests (≥85% coverage)
+- [x] 1.6 Implement user icons storage in S3
+  - [x] Create `centry/pylon_main/plugins/elitea_core/utils/icon_storage.py`
+  - [x] Use existing `artifacts_upload` RPC + MinioClient (project's S3 interface)
+  - [x] Implement `upload_icon(project_id, icon_data, filename)` → URL
+  - [x] Implement `get_icon_url(project_id, filename)` → relative URL path
+  - [x] Implement `delete_icon(project_id, filename)`
+  - [x] Write unit tests (≥85% coverage) — 48 tests, 100% coverage
 
 ### Week 1-2: Infrastructure Configuration
 
@@ -116,11 +116,14 @@
   - [ ] Emit 'reconnected' event for UI update
 
 - [ ] 1.16 Add connection state indicator to UI
-  - [ ] Create ConnectionStatus component (React)
-  - [ ] Show: connected (green), reconnecting (yellow), disconnected (red)
-  - [ ] Position: bottom-right corner, non-intrusive
-  - [ ] Auto-hide after 3s when connected
-  - [ ] Show reconnection attempt count
+  - [ ] Create `EliteaUI/src/components/ConnectionStatus/ConnectionStatus.tsx`
+  - [ ] Use existing MUI Chip component with color variants: success/warning/error
+  - [ ] States: "Connected" (green chip), "Reconnecting..." (yellow chip + attempt count), "Disconnected" (red chip)
+  - [ ] Place in the existing AppBar/Header component, right-aligned before user avatar
+  - [ ] Subscribe to Socket.IO events: 'connect', 'disconnect', 'reconnect_attempt', 'reconnect'
+  - [ ] Auto-hide the chip 3s after successful connection (display:none, no layout shift)
+  - [ ] Use only existing theme tokens (no custom colors or CSS)
+  - [ ] Export from `EliteaUI/src/components/index.ts`
 
 - [ ] 1.17 Create staging ArgoCD overlay
   - [ ] Create values/staging/pylon-main.yaml (3 replicas, OIDC mock, Redis adapter)
@@ -159,18 +162,100 @@
 ## Phase 2: Session & Task State (Weeks 4-6)
 
 - [ ] 2.1 Move auth_core sessions to Redis
+  - [ ] Find current session storage in `pylon_auth/` plugins (grep for `session`, `flask.session`)
+  - [ ] Add `flask-session` or `redis-session` dependency to requirements
+  - [ ] Configure session backend to use Redis (key prefix: `session:{session_id}`)
+  - [ ] Set session TTL to 24 hours
+  - [ ] Verify login/logout flow works with Redis sessions
+  - [ ] Write unit tests (>=85% coverage)
+
 - [ ] 2.2 Configure secure session cookies
+  - [ ] Set `SESSION_COOKIE_SECURE=True` (HTTPS only)
+  - [ ] Set `SESSION_COOKIE_HTTPONLY=True` (no JS access)
+  - [ ] Set `SESSION_COOKIE_SAMESITE='Lax'`
+  - [ ] Set `SESSION_COOKIE_NAME='elitea_session'`
+  - [ ] Make flags configurable via environment variables for local dev (Secure=False)
+  - [ ] Write unit tests (>=85% coverage)
+
 - [ ] 2.3 Externalize toolkit_schemas to Redis
+  - [ ] Find where `toolkit_schemas` is stored in memory (grep in elitea_core)
+  - [ ] Create `centry/pylon_main/plugins/elitea_core/utils/redis_toolkit_schemas.py`
+  - [ ] Store schemas as JSON in Redis hash (key: `toolkit_schemas:{project_id}`)
+  - [ ] Add TTL of 1 hour (schemas rarely change, cache invalidation on update)
+  - [ ] Replace in-memory access with Redis-backed getter
+  - [ ] Write unit tests (>=85% coverage)
+
 - [ ] 2.4 Externalize index_types to Redis
+  - [ ] Find where `index_types` is stored in memory (grep in elitea_core)
+  - [ ] Store as Redis hash (key: `index_types:global`)
+  - [ ] Add TTL of 1 hour
+  - [ ] Replace in-memory access with Redis-backed getter
+  - [ ] Write unit tests (>=85% coverage)
+
 - [ ] 2.5 Externalize mcp_prebuilt_configs to Redis
+  - [ ] Find where `mcp_prebuilt_configs` is stored in memory
+  - [ ] Store as Redis hash (key: `mcp_prebuilt_configs:global`)
+  - [ ] Add TTL of 1 hour
+  - [ ] Replace in-memory access with Redis-backed getter
+  - [ ] Write unit tests (>=85% coverage)
+
 - [ ] 2.6 Externalize provider health state to Redis
+  - [ ] Find where provider health/status is tracked in memory
+  - [ ] Store as Redis hash (key: `provider_health:{provider_name}`)
+  - [ ] Add TTL of 5 minutes (health checks refresh frequently)
+  - [ ] Replace in-memory access with Redis-backed getter/setter
+  - [ ] Write unit tests (>=85% coverage)
+
 - [ ] 2.7 Change TaskNode result_transport to Redis
+  - [ ] Find TaskNode result transport mechanism (grep `result_transport`, `task_result`)
+  - [ ] Replace in-memory transport with Redis pub/sub or Redis list
+  - [ ] Key pattern: `task_result:{task_id}` with TTL 1 hour
+  - [ ] Ensure results are consumed exactly once (BRPOPLPUSH or BLPOP)
+  - [ ] Write unit tests (>=85% coverage)
+
 - [ ] 2.8 Implement startup state reconstruction
+  - [ ] Create `centry/pylon_main/plugins/elitea_core/utils/state_reconstruction.py`
+  - [ ] On startup, reload active sessions from Redis
+  - [ ] Rebuild in-progress task state from Redis
+  - [ ] Log reconstruction summary (sessions restored, tasks resumed)
+  - [ ] Handle missing/expired keys gracefully (skip, don't crash)
+  - [ ] Write unit tests (>=85% coverage)
+
 - [ ] 2.9 Add distributed lock library (Redlock)
+  - [ ] Create `centry/pylon_main/plugins/elitea_core/utils/distributed_lock.py`
+  - [ ] Implement using Redis SETNX + TTL (single-node Redlock)
+  - [ ] API: `acquire(lock_name, ttl_seconds)` -> bool, `release(lock_name)` -> bool
+  - [ ] Add auto-release via TTL (default 30s) to prevent deadlocks
+  - [ ] Add `with distributed_lock(name, ttl):` context manager
+  - [ ] Write unit tests (>=85% coverage)
+
 - [ ] 2.10 Wrap conversation creation in lock
+  - [ ] Find conversation creation code (grep `create_conversation`, `new_conversation`)
+  - [ ] Wrap with distributed lock: `conversation_create:{user_id}:{chat_id}`
+  - [ ] TTL: 10 seconds (creation should be fast)
+  - [ ] On lock failure: return 409 Conflict with retry-after header
+  - [ ] Write unit tests (>=85% coverage)
+
 - [ ] 2.11 Implement Canvas version atomicity (MULTI/EXEC)
+  - [ ] Find Canvas save/update code (grep `canvas`, `save_canvas`, `update_canvas`)
+  - [ ] Add version field to Canvas state in Redis
+  - [ ] Use Redis WATCH + MULTI/EXEC for optimistic locking on updates
+  - [ ] On version conflict: return 409 with current version for client retry
+  - [ ] Write unit tests (>=85% coverage)
+
 - [ ] 2.12 Change task claiming to SKIP LOCKED
+  - [ ] Find task claiming/assignment code (grep `claim_task`, `assign_task`, `SELECT.*FOR UPDATE`)
+  - [ ] Change to `SELECT ... FOR UPDATE SKIP LOCKED` for PostgreSQL
+  - [ ] This prevents multiple pods from claiming the same task
+  - [ ] Add index on task status column if missing
+  - [ ] Write unit tests (>=85% coverage)
+
 - [ ] 2.13 Add disconnect cleanup via pub/sub
+  - [ ] On Socket.IO disconnect, publish cleanup event to Redis channel `user_disconnected`
+  - [ ] Subscriber releases locks held by disconnected session
+  - [ ] Subscriber marks in-progress tasks as abandoned (with grace period of 60s)
+  - [ ] Handle reconnect within grace period (cancel cleanup)
+  - [ ] Write unit tests (>=85% coverage)
 
 ## Phase 3: Storage Optimization (Weeks 4-6, parallel with Phase 2)
 

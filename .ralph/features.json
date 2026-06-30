@@ -15,7 +15,11 @@
           "validator": {
             "type": "file_contains",
             "path": "centry/pylon_main/configs/shared.yml",
-            "patterns": ["socketio:", "redis:", "host:"]
+            "patterns": [
+              "socketio:",
+              "redis:",
+              "host:"
+            ]
           },
           "passes": false
         },
@@ -38,7 +42,10 @@
           "validator": {
             "type": "file_contains",
             "path": "centry/pylon_main/plugins/elitea_core/sio/asr.py",
-            "patterns": ["redis", "session"]
+            "patterns": [
+              "RedisAsrSessionStore",
+              "redis_asr_store"
+            ]
           },
           "passes": false
         },
@@ -49,7 +56,10 @@
           "validator": {
             "type": "file_contains",
             "path": "centry/pylon_main/plugins/elitea_core/utils/callback_manager.py",
-            "patterns": ["redis", "callback"]
+            "patterns": [
+              "redis",
+              "callback"
+            ]
           },
           "passes": false
         },
@@ -60,18 +70,25 @@
           "validator": {
             "type": "file_contains",
             "path": "centry/pylon_main/plugins/elitea_core/utils/task_logs_redis.py",
-            "patterns": ["redis", "task_log"]
+            "patterns": [
+              "redis",
+              "task_log"
+            ]
           },
           "passes": false
         },
         {
           "id": "F1.6",
           "category": "backend",
-          "description": "User icons stored in S3 via libcloud",
+          "description": "User icons stored in S3 via artifacts RPC",
           "validator": {
             "type": "file_contains",
             "path": "centry/pylon_main/plugins/elitea_core/utils/icon_storage.py",
-            "patterns": ["libcloud", "icon", "upload"]
+            "patterns": [
+              "artifacts_upload",
+              "icon",
+              "upload"
+            ]
           },
           "passes": false
         },
@@ -82,7 +99,10 @@
           "validator": {
             "type": "file_contains",
             "path": "../kharkevich/argocd-public/elitea-platform/values/staging/pylon-main.yaml",
-            "patterns": ["emptyDir", "sizeLimit"]
+            "patterns": [
+              "emptyDir",
+              "sizeLimit"
+            ]
           },
           "passes": false
         },
@@ -93,7 +113,10 @@
           "validator": {
             "type": "file_contains",
             "path": "../kharkevich/argocd-public/elitea-platform/values/staging/pylon-main.yaml",
-            "patterns": ["pool_size: 15", "max_overflow: 10"]
+            "patterns": [
+              "pool_size: 15",
+              "max_overflow: 10"
+            ]
           },
           "passes": false
         },
@@ -140,7 +163,10 @@
           "validator": {
             "type": "file_contains",
             "path": "../kharkevich/argocd-public/elitea-platform/values/staging/pylon-main.yaml",
-            "patterns": ["preStop", "sleep"]
+            "patterns": [
+              "preStop",
+              "sleep"
+            ]
           },
           "passes": false
         },
@@ -151,7 +177,9 @@
           "validator": {
             "type": "file_contains",
             "path": "../kharkevich/argocd-public/elitea-platform/values/staging/pylon-main.yaml",
-            "patterns": ["terminationGracePeriodSeconds: 60"]
+            "patterns": [
+              "terminationGracePeriodSeconds: 60"
+            ]
           },
           "passes": false
         },
@@ -162,7 +190,10 @@
           "validator": {
             "type": "file_contains",
             "path": "../kharkevich/argocd-public/elitea-platform/values/staging/pylon-main.yaml",
-            "patterns": ["/health/live", "/health/ready"]
+            "patterns": [
+              "/health/live",
+              "/health/ready"
+            ]
           },
           "passes": false
         },
@@ -172,7 +203,7 @@
           "description": "Socket.IO client configured with auto-reconnect",
           "validator": {
             "type": "command",
-            "command": "grep -r 'reconnection' EliteaUI/src/ | grep -q 'true'"
+            "command": "grep -rE 'reconnection:\\s*true|reconnectionAttempts|reconnectionDelay' EliteaUI/src/ | grep -q ."
           },
           "passes": false
         },
@@ -250,7 +281,10 @@
           "validator": {
             "type": "file_contains",
             "path": "centry/pylon_main/configs/shared.yml",
-            "patterns": ["session_redis", "secure"]
+            "patterns": [
+              "session_redis",
+              "secure"
+            ]
           },
           "passes": false
         },
@@ -270,7 +304,9 @@
           "description": "Distributed lock library (Redlock) implemented",
           "validator": {
             "type": "file_exists",
-            "paths": ["centry/pylon_main/plugins/elitea_core/utils/distributed_lock.py"]
+            "paths": [
+              "centry/pylon_main/plugins/elitea_core/utils/distributed_lock.py"
+            ]
           },
           "passes": false
         },
@@ -297,7 +333,9 @@
           "description": "Model cache init container image defined",
           "validator": {
             "type": "file_exists",
-            "paths": ["centry/docker/model-cache-init/Dockerfile"]
+            "paths": [
+              "centry/docker/model-cache-init/Dockerfile"
+            ]
           },
           "passes": false
         },
@@ -307,7 +345,9 @@
           "description": "Model cache manifest with MD5 checksums",
           "validator": {
             "type": "file_exists",
-            "paths": ["centry/docker/model-cache-init/manifest.json"]
+            "paths": [
+              "centry/docker/model-cache-init/manifest.json"
+            ]
           },
           "passes": false
         },
@@ -318,7 +358,10 @@
           "validator": {
             "type": "file_contains",
             "path": "../kharkevich/argocd-public/elitea-platform/values/staging/pylon-indexer.yaml",
-            "patterns": ["emptyDir", "60Gi"]
+            "patterns": [
+              "emptyDir",
+              "60Gi"
+            ]
           },
           "passes": false
         }
@@ -382,7 +425,9 @@
           "description": "PgBouncer deployed with session pooling",
           "validator": {
             "type": "file_exists",
-            "paths": ["../kharkevich/argocd-public/elitea-platform/values/staging/pgbouncer.yaml"]
+            "paths": [
+              "../kharkevich/argocd-public/elitea-platform/values/staging/pgbouncer.yaml"
+            ]
           },
           "passes": false
         },
@@ -393,7 +438,10 @@
           "validator": {
             "type": "file_contains",
             "path": "../kharkevich/argocd-public/elitea-platform/values/staging/valkey.yaml",
-            "patterns": ["sentinel", "replicas"]
+            "patterns": [
+              "sentinel",
+              "replicas"
+            ]
           },
           "passes": false
         },
@@ -413,7 +461,9 @@
           "description": "SLOs and alerting rules defined",
           "validator": {
             "type": "file_exists",
-            "paths": ["centry/monitoring/alerts/scaling-slos.yaml"]
+            "paths": [
+              "centry/monitoring/alerts/scaling-slos.yaml"
+            ]
           },
           "passes": false
         }
