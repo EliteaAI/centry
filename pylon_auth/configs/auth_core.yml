@@ -1,8 +1,8 @@
 db_url: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
 db_options:  # DB options
   pool_pre_ping: true
-  pool_size: 25
-  max_overflow: 25
+  pool_size: 10
+  max_overflow: 5
   pool_recycle: 3600
 
 auth_provider: form  # Main auth provider

@@ -1,0 +1,32 @@
+{
+  "name": "elitea-scaling-e2e",
+  "version": "1.0.0",
+  "description": "E2E tests for validating Elitea horizontal scaling",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:health": "playwright test specs/health-checks.spec.ts",
+    "test:scaling": "playwright test specs/socket-io-scaling.spec.ts",
+    "test:session": "playwright test specs/session-persistence.spec.ts",
+    "test:resilience": "playwright test specs/connection-resilience.spec.ts",
+    "test:ui-resilience": "playwright test specs/ui-resilience.spec.ts",
+    "test:login": "playwright test specs/oidc-login.spec.ts",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "report": "playwright show-report"
+  },
+  "dependencies": {
+    "@kubernetes/client-node": "^1.0.0",
+    "socket.io-client": "^4.7.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

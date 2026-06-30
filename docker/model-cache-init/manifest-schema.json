@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Model Cache Manifest",
+  "description": "Schema for the model-cache-init container manifest file. Describes bundles to download and optionally extract during pod initialization.",
+  "type": "object",
+  "required": ["version", "models"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Semver version of the manifest format"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of the manifest"
+    },
+    "models": {
+      "type": "array",
+      "description": "List of model/data files to download",
+      "items": {
+        "type": "object",
+        "required": ["name", "url", "path"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable name for the bundle"
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^(s3://|https?://).+",
+            "description": "Source URL (s3:// or http(s)://)"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Relative path within cache directory for the downloaded file"
+          },
+          "md5": {
+            "type": ["string", "null"],
+            "pattern": "^[a-f0-9]{32}$",
+            "description": "Expected MD5 checksum (null if not available)"
+          },
+          "size_mb": {
+            "type": ["integer", "number"],
+            "minimum": 0,
+            "description": "Approximate size in megabytes (for logging)"
+          },
+          "extract": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to extract the archive after download (tar.gz supported)"
+          },
+          "extract_target": {
+            "type": "string",
+            "description": "Relative path within cache directory for extraction target (required when extract=true)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of what this bundle contains"
+          }
+        },
+        "if": {
+          "properties": { "extract": { "const": true } }
+        },
+        "then": {
+          "required": ["extract_target"]
+        }
+      }
+    }
+  }
+}

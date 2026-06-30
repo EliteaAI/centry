@@ -1,7 +1,14 @@
 services:
   redis:
     image: redis:8.2.4-alpine
-    command: sh -c 'exec redis-server --requirepass $$REDIS_PASSWORD --save 300 1 --dir /data/ --dbfilename dump.rdb'
+    command: >-
+      sh -c '
+        if [ "$$REDIS_TLS_ENABLED" = "true" ]; then
+          exec redis-server /etc/redis/redis-tls.conf --requirepass $$REDIS_PASSWORD
+        else
+          exec redis-server /etc/redis/redis.conf --requirepass $$REDIS_PASSWORD
+        fi
+      '
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -12,13 +19,128 @@ services:
       - ./envs/default.env
       - ./envs/override.env
     volumes:
+      - ./redis/redis.conf:/etc/redis/redis.conf:ro
+      - ./redis/redis-tls.conf:/etc/redis/redis-tls.conf:ro
+      - ./redis/tls:/tls:ro
       - redis-data:/data
+    networks:
+      - centry
+
+  redis-sentinel-1:
+    image: redis:8.2.4-alpine
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    env_file:
+      - ./envs/default.env
+      - ./envs/override.env
+    command: >-
+      sh -c '
+        if [ "$$REDIS_TLS_ENABLED" = "true" ]; then
+          CONF=/etc/redis/sentinel-tls.conf
+        else
+          CONF=/etc/redis/sentinel.conf
+        fi
+        cp $$CONF /tmp/sentinel.conf
+        sed -i "s/REDIS_PASSWORD_PLACEHOLDER/$$REDIS_PASSWORD/" /tmp/sentinel.conf
+        exec redis-sentinel /tmp/sentinel.conf
+      '
+    volumes:
+      - ./redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+      - ./redis/sentinel-tls.conf:/etc/redis/sentinel-tls.conf:ro
+      - ./redis/tls:/tls:ro
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - centry
+
+  redis-sentinel-2:
+    image: redis:8.2.4-alpine
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    env_file:
+      - ./envs/default.env
+      - ./envs/override.env
+    command: >-
+      sh -c '
+        if [ "$$REDIS_TLS_ENABLED" = "true" ]; then
+          CONF=/etc/redis/sentinel-tls.conf
+        else
+          CONF=/etc/redis/sentinel.conf
+        fi
+        cp $$CONF /tmp/sentinel.conf
+        sed -i "s/REDIS_PASSWORD_PLACEHOLDER/$$REDIS_PASSWORD/" /tmp/sentinel.conf
+        exec redis-sentinel /tmp/sentinel.conf
+      '
+    volumes:
+      - ./redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+      - ./redis/sentinel-tls.conf:/etc/redis/sentinel-tls.conf:ro
+      - ./redis/tls:/tls:ro
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - centry
+
+  redis-sentinel-3:
+    image: redis:8.2.4-alpine
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    env_file:
+      - ./envs/default.env
+      - ./envs/override.env
+    command: >-
+      sh -c '
+        if [ "$$REDIS_TLS_ENABLED" = "true" ]; then
+          CONF=/etc/redis/sentinel-tls.conf
+        else
+          CONF=/etc/redis/sentinel.conf
+        fi
+        cp $$CONF /tmp/sentinel.conf
+        sed -i "s/REDIS_PASSWORD_PLACEHOLDER/$$REDIS_PASSWORD/" /tmp/sentinel.conf
+        exec redis-sentinel /tmp/sentinel.conf
+      '
+    volumes:
+      - ./redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+      - ./redis/sentinel-tls.conf:/etc/redis/sentinel-tls.conf:ro
+      - ./redis/tls:/tls:ro
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - centry
 
   postgres:
     image: pgvector/pgvector:0.8.1-pg18
     restart: unless-stopped
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
     logging:
       driver: "json-file"
       options:
@@ -31,6 +153,29 @@ services:
       - PGDATA=/data/pgdata
     volumes:
       - postgres-data:/data
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - centry
+
+  pgbouncer:
+    image: pgbouncer/pgbouncer:latest
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     networks:
       - centry
 
@@ -54,7 +199,7 @@ services:
       - ./ssl:/ssl
     depends_on:
       - redis
-      - postgres
+      - pgbouncer
     networks:
       - centry
 
@@ -81,7 +226,7 @@ services:
       # - 443:8443
     depends_on:
       - redis
-      - postgres
+      - pgbouncer
     networks:
       - centry
 
@@ -105,12 +250,141 @@ services:
       - ./ssl:/ssl
     depends_on:
       - redis
+      - pgbouncer
+    networks:
+      - centry
+
+  pylon_gateway:
+    image: ghcr.io/eliteaai/pylon:1.2.25
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    env_file:
+      - ./envs/default.env
+      - ./envs/override.env
+    environment:
+      - NAME=pylon-gateway
+      - PYLON_WEB_RUNTIME=gevent
+      - PYLON_CONFIG_SEED=file:/data/pylon.yml
+    volumes:
+      - ./pylon_gateway:/data
+      - ./ssl:/ssl
+    ports:
+      - "8082:8080"
+    depends_on:
+      - redis
+      - pgbouncer
+      - pylon_auth
+    networks:
+      - centry
+
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yaml:/etc/prometheus/alerts.yaml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    networks:
+      - centry
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - centry
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.73.0
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    env_file:
+      - ./envs/default.env
+      - ./envs/override.env
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+      - REDIS_EXPORTER_INCL_SYSTEM_METRICS=true
+    entrypoint: sh -c 'exec /redis_exporter --redis.password=$$REDIS_PASSWORD'
+    depends_on:
+      - redis
+    networks:
+      - centry
+
+  pgbouncer-exporter:
+    image: prometheuscommunity/pgbouncer-exporter:v0.10.2
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    environment:
+      - PGBOUNCER_EXPORTER_HOST=pgbouncer
+      - PGBOUNCER_EXPORTER_PORT=6432
+      - PGBOUNCER_EXPORTER_USER=pgbouncer_stats
+      - PGBOUNCER_EXPORTER_PASS=
+    depends_on:
+      - pgbouncer
+    networks:
+      - centry
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
     networks:
       - centry
 
 volumes:
   redis-data:
   postgres-data:
+  prometheus-data:
+  grafana-data:
 
 networks:
   centry:

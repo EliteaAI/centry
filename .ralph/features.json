@@ -1,0 +1,510 @@
+{
+  "name": "Elitea Horizontal Scaling",
+  "description": "Phase 1-6 horizontal scaling implementation for Elitea Pylon services",
+  "version": "2.0.0",
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Stateless Foundation",
+      "duration": "2-3 weeks",
+      "features": [
+        {
+          "id": "F1.1",
+          "category": "backend",
+          "description": "Socket.IO Redis Adapter configured in pylon_main",
+          "validator": {
+            "type": "file_contains",
+            "path": "centry/pylon_main/configs/shared.yml",
+            "patterns": [
+              "socketio:",
+              "redis:",
+              "host:"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.2",
+          "category": "backend",
+          "description": "RedisServersStorage implemented for MCP state",
+          "validator": {
+            "type": "file_exists",
+            "paths": [
+              "centry/pylon_main/plugins/elitea_core/utils/redis_servers_storage.py"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.3",
+          "category": "backend",
+          "description": "ASR session state externalized to Redis",
+          "validator": {
+            "type": "file_contains",
+            "path": "centry/pylon_main/plugins/elitea_core/sio/asr.py",
+            "patterns": [
+              "RedisAsrSessionStore",
+              "redis_asr_store"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.4",
+          "category": "backend",
+          "description": "Callback tasks moved to Redis",
+          "validator": {
+            "type": "file_contains",
+            "path": "centry/pylon_main/plugins/elitea_core/utils/callback_manager.py",
+            "patterns": [
+              "redis",
+              "callback"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.5",
+          "category": "backend",
+          "description": "Task logs cache moved to Redis",
+          "validator": {
+            "type": "file_contains",
+            "path": "centry/pylon_main/plugins/elitea_core/utils/task_logs_redis.py",
+            "patterns": [
+              "redis",
+              "task_log"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.6",
+          "category": "backend",
+          "description": "User icons stored in S3 via artifacts RPC",
+          "validator": {
+            "type": "file_contains",
+            "path": "centry/pylon_main/plugins/elitea_core/utils/icon_storage.py",
+            "patterns": [
+              "artifacts_upload",
+              "icon",
+              "upload"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.7",
+          "category": "infrastructure",
+          "description": "Staging values use emptyDir for /tmp volumes",
+          "validator": {
+            "type": "file_contains",
+            "path": "../kharkevich/argocd-public/elitea-platform/values/staging/pylon-main.yaml",
+            "patterns": [
+              "emptyDir",
+              "sizeLimit"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.8",
+          "category": "infrastructure",
+          "description": "Database connection pools reduced for horizontal scaling",
+          "validator": {
+            "type": "file_contains",
+            "path": "../kharkevich/argocd-public/elitea-platform/values/staging/pylon-main.yaml",
+            "patterns": [
+              "pool_size: 15",
+              "max_overflow: 10"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.9",
+          "category": "backend",
+          "description": "Migration lock with pg_try_advisory_lock and timeout",
+          "validator": {
+            "type": "file_exists",
+            "paths": [
+              "centry/pylon_main/plugins/elitea_core/utils/migration_lock.py"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.10",
+          "category": "backend",
+          "description": "Feature flags module for gradual rollout",
+          "validator": {
+            "type": "file_exists",
+            "paths": [
+              "centry/pylon_main/plugins/elitea_core/utils/feature_flags.py"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.11",
+          "category": "backend",
+          "description": "Health endpoints /health/live and /health/ready with dependency checks",
+          "validator": {
+            "type": "file_exists",
+            "paths": [
+              "centry/pylon_main/plugins/elitea_core/routes/health.py"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.12",
+          "category": "infrastructure",
+          "description": "Graceful shutdown with preStop hooks configured",
+          "validator": {
+            "type": "file_contains",
+            "path": "../kharkevich/argocd-public/elitea-platform/values/staging/pylon-main.yaml",
+            "patterns": [
+              "preStop",
+              "sleep"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.13",
+          "category": "infrastructure",
+          "description": "terminationGracePeriodSeconds set for all services",
+          "validator": {
+            "type": "file_contains",
+            "path": "../kharkevich/argocd-public/elitea-platform/values/staging/pylon-main.yaml",
+            "patterns": [
+              "terminationGracePeriodSeconds: 60"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.14",
+          "category": "infrastructure",
+          "description": "Liveness and readiness probes use /health/live and /health/ready",
+          "validator": {
+            "type": "file_contains",
+            "path": "../kharkevich/argocd-public/elitea-platform/values/staging/pylon-main.yaml",
+            "patterns": [
+              "/health/live",
+              "/health/ready"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.15",
+          "category": "frontend",
+          "description": "Socket.IO client configured with auto-reconnect",
+          "validator": {
+            "type": "command",
+            "command": "grep -rE 'reconnection:\\s*true|reconnectionAttempts|reconnectionDelay' EliteaUI/src/ | grep -q ."
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.16",
+          "category": "frontend",
+          "description": "Connection state indicator component exists",
+          "validator": {
+            "type": "command",
+            "command": "find EliteaUI/src -name '*ConnectionStatus*' -o -name '*connection-status*' | grep -q ."
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.17",
+          "category": "infrastructure",
+          "description": "Staging ArgoCD overlay directory exists with all value files",
+          "validator": {
+            "type": "directory_exists",
+            "paths": [
+              "../kharkevich/argocd-public/elitea-platform/values/staging",
+              "../kharkevich/argocd-public/elitea-platform/apps/staging"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.18",
+          "category": "testing",
+          "description": "Playwright configuration exists for E2E scaling tests",
+          "validator": {
+            "type": "file_exists",
+            "paths": [
+              "centry/tests/e2e/playwright.config.ts"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.19",
+          "category": "testing",
+          "description": "E2E scaling test specs exist",
+          "validator": {
+            "type": "file_exists",
+            "paths": [
+              "centry/tests/e2e/specs/socket-io-scaling.spec.ts",
+              "centry/tests/e2e/specs/health-checks.spec.ts",
+              "centry/tests/e2e/specs/session-persistence.spec.ts"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F1.20",
+          "category": "testing",
+          "description": "E2E test utilities have 85% test coverage",
+          "validator": {
+            "type": "coverage",
+            "path": "centry/tests/e2e",
+            "threshold": 85
+          },
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "Session & Task State",
+      "duration": "2-3 weeks",
+      "features": [
+        {
+          "id": "F2.1",
+          "category": "backend",
+          "description": "Auth sessions externalized to Redis with secure cookies",
+          "validator": {
+            "type": "file_contains",
+            "path": "centry/pylon_main/configs/shared.yml",
+            "patterns": [
+              "session_redis",
+              "secure"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F2.2",
+          "category": "backend",
+          "description": "Toolkit schemas cached in Redis",
+          "validator": {
+            "type": "command",
+            "command": "grep -r 'toolkit_schema' centry/pylon_main/plugins/elitea_core/utils/ | grep -q 'redis'"
+          },
+          "passes": false
+        },
+        {
+          "id": "F2.3",
+          "category": "backend",
+          "description": "Distributed lock library (Redlock) implemented",
+          "validator": {
+            "type": "file_exists",
+            "paths": [
+              "centry/pylon_main/plugins/elitea_core/utils/distributed_lock.py"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F2.4",
+          "category": "backend",
+          "description": "Canvas version atomicity with MULTI/EXEC",
+          "validator": {
+            "type": "command",
+            "command": "grep -r 'MULTI\\|pipeline\\|atomic' centry/pylon_main/plugins/elitea_core/ | grep -q 'canvas'"
+          },
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "Storage Optimization",
+      "duration": "2-3 weeks",
+      "features": [
+        {
+          "id": "F3.1",
+          "category": "infrastructure",
+          "description": "Model cache init container image defined",
+          "validator": {
+            "type": "file_exists",
+            "paths": [
+              "centry/docker/model-cache-init/Dockerfile"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F3.2",
+          "category": "infrastructure",
+          "description": "Model cache manifest with MD5 checksums",
+          "validator": {
+            "type": "file_exists",
+            "paths": [
+              "centry/docker/model-cache-init/manifest.json"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F3.3",
+          "category": "infrastructure",
+          "description": "emptyDir configured for model caches (60Gi)",
+          "validator": {
+            "type": "file_contains",
+            "path": "../kharkevich/argocd-public/elitea-platform/values/staging/pylon-indexer.yaml",
+            "patterns": [
+              "emptyDir",
+              "60Gi"
+            ]
+          },
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "name": "Event System Hardening",
+      "duration": "3-4 weeks",
+      "features": [
+        {
+          "id": "F4.1",
+          "category": "backend",
+          "description": "Redis Streams implemented for work events",
+          "validator": {
+            "type": "command",
+            "command": "grep -r 'XADD\\|XREAD\\|XGROUP' centry/ | grep -q ."
+          },
+          "passes": false
+        },
+        {
+          "id": "F4.2",
+          "category": "backend",
+          "description": "Event deduplication with SETNX pattern",
+          "validator": {
+            "type": "command",
+            "command": "grep -r 'setnx\\|SETNX\\|idempotency' centry/pylon_main/plugins/elitea_core/ | grep -q ."
+          },
+          "passes": false
+        },
+        {
+          "id": "F4.3",
+          "category": "backend",
+          "description": "Dead letter queue for failed events",
+          "validator": {
+            "type": "command",
+            "command": "grep -r 'dead_letter\\|dlq' centry/ | grep -q ."
+          },
+          "passes": false
+        },
+        {
+          "id": "F4.4",
+          "category": "backend",
+          "description": "Distributed cron with leader election",
+          "validator": {
+            "type": "command",
+            "command": "grep -r 'leader_election\\|leader_lock' centry/pylon_main/plugins/elitea_core/ | grep -q ."
+          },
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "name": "Infrastructure Scaling",
+      "duration": "3-4 weeks",
+      "features": [
+        {
+          "id": "F5.1",
+          "category": "infrastructure",
+          "description": "PgBouncer deployed with session pooling",
+          "validator": {
+            "type": "file_exists",
+            "paths": [
+              "../kharkevich/argocd-public/elitea-platform/values/staging/pgbouncer.yaml"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F5.2",
+          "category": "infrastructure",
+          "description": "Redis Sentinel with 3 nodes configured",
+          "validator": {
+            "type": "file_contains",
+            "path": "../kharkevich/argocd-public/elitea-platform/values/staging/valkey.yaml",
+            "patterns": [
+              "sentinel",
+              "replicas"
+            ]
+          },
+          "passes": false
+        },
+        {
+          "id": "F5.3",
+          "category": "infrastructure",
+          "description": "HPA configured with CPU target 70%",
+          "validator": {
+            "type": "command",
+            "command": "grep -r 'HorizontalPodAutoscaler\\|autoscaling' ../kharkevich/argocd-public/elitea-platform/values/staging/ | grep -q ."
+          },
+          "passes": false
+        },
+        {
+          "id": "F5.4",
+          "category": "observability",
+          "description": "SLOs and alerting rules defined",
+          "validator": {
+            "type": "file_exists",
+            "paths": [
+              "centry/monitoring/alerts/scaling-slos.yaml"
+            ]
+          },
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": "phase-6",
+      "name": "Production Hardening",
+      "duration": "2-3 weeks",
+      "features": [
+        {
+          "id": "F6.1",
+          "category": "infrastructure",
+          "description": "Redis AUTH and TLS enabled",
+          "validator": {
+            "type": "command",
+            "command": "grep -r 'requirepass\\|tls-cert\\|redis_password' ../kharkevich/argocd-public/elitea-platform/values/staging/ | grep -q ."
+          },
+          "passes": false
+        },
+        {
+          "id": "F6.2",
+          "category": "infrastructure",
+          "description": "Network Policies implemented",
+          "validator": {
+            "type": "command",
+            "command": "grep -r 'NetworkPolicy' ../kharkevich/argocd-public/elitea-platform/ | grep -q ."
+          },
+          "passes": false
+        },
+        {
+          "id": "F6.3",
+          "category": "infrastructure",
+          "description": "Rate limiting implemented",
+          "validator": {
+            "type": "command",
+            "command": "grep -r 'rate_limit\\|ratelimit' centry/pylon_main/plugins/elitea_core/ | grep -q ."
+          },
+          "passes": false
+        }
+      ]
+    }
+  ]
+}
