@@ -92,10 +92,13 @@ class TestStreamRetention:
 def clean_registry(mod):
     """Save, clear, and restore registry around each test."""
     original = dict(mod._REGISTRY)
+    original_streams = dict(mod._STREAM_RETENTION)
     mod.clear_registry()
     yield mod
     mod._REGISTRY.clear()
     mod._REGISTRY.update(original)
+    mod._STREAM_RETENTION.clear()
+    mod._STREAM_RETENTION.update(original_streams)
 
 
 class TestRegisterEvent:
@@ -364,3 +367,113 @@ class TestBuiltinRegistrations:
     def test_all_events_have_descriptions(self, mod):
         for name, (etype, desc) in mod.list_all().items():
             assert desc != "", f"Event '{name}' is missing a description"
+
+
+# ---------------------------------------------------------------------------
+# Stream retention registry tests
+# ---------------------------------------------------------------------------
+
+class TestRegisterStreamRetention:
+    def test_register_custom_retention(self, clean_registry):
+        m = clean_registry
+        m.register_stream_retention("work:my_custom_stream", 5000)
+        assert m.get_stream_retention("work:my_custom_stream") == 5000
+
+    def test_register_overwrites_previous(self, clean_registry):
+        m = clean_registry
+        m.register_stream_retention("work:x", 1000)
+        m.register_stream_retention("work:x", 2000)
+        assert m.get_stream_retention("work:x") == 2000
+
+    def test_list_stream_retentions_empty(self, clean_registry):
+        m = clean_registry
+        assert m.list_stream_retentions() == {}
+
+    def test_list_stream_retentions_populated(self, clean_registry, StreamRetention):
+        m = clean_registry
+        m.register_stream_retention("work:a", StreamRetention.WORK)
+        m.register_stream_retention("notify:b", StreamRetention.NOTIFICATION)
+        result = m.list_stream_retentions()
+        assert result == {"work:a": StreamRetention.WORK, "notify:b": StreamRetention.NOTIFICATION}
+
+    def test_list_returns_copy(self, clean_registry):
+        m = clean_registry
+        m.register_stream_retention("work:x", 100)
+        result = m.list_stream_retentions()
+        result["injected"] = 999
+        assert m.get_stream_retention("injected") != 999
+
+
+class TestGetStreamRetention:
+    def test_explicit_registration_takes_priority(self, clean_registry, StreamRetention):
+        m = clean_registry
+        m.register_stream_retention("work:task_distribution", 7777)
+        assert m.get_stream_retention("work:task_distribution") == 7777
+
+    def test_dlq_prefix_detection(self, clean_registry, StreamRetention):
+        m = clean_registry
+        assert m.get_stream_retention("dlq:work:something") == StreamRetention.DLQ
+
+    def test_dlq_prefix_explicit_override(self, clean_registry):
+        m = clean_registry
+        m.register_stream_retention("dlq:work:special", 99999)
+        assert m.get_stream_retention("dlq:work:special") == 99999
+
+    def test_work_prefix_detection(self, clean_registry, StreamRetention):
+        m = clean_registry
+        assert m.get_stream_retention("work:unknown_stream") == StreamRetention.WORK
+
+    def test_notify_prefix_detection(self, clean_registry, StreamRetention):
+        m = clean_registry
+        assert m.get_stream_retention("notify:my_events") == StreamRetention.NOTIFICATION
+
+    def test_notification_prefix_detection(self, clean_registry, StreamRetention):
+        m = clean_registry
+        assert m.get_stream_retention("notification:alerts") == StreamRetention.NOTIFICATION
+
+    def test_unknown_prefix_defaults_to_work(self, clean_registry, StreamRetention):
+        m = clean_registry
+        assert m.get_stream_retention("custom:something") == StreamRetention.WORK
+
+    def test_no_prefix_defaults_to_work(self, clean_registry, StreamRetention):
+        m = clean_registry
+        assert m.get_stream_retention("bare_stream_name") == StreamRetention.WORK
+
+
+class TestClearRegistryIncludesStreams:
+    def test_clear_removes_stream_retentions(self, clean_registry):
+        m = clean_registry
+        m.register_stream_retention("work:x", 5000)
+        m.clear_registry()
+        assert m.list_stream_retentions() == {}
+
+
+class TestBuiltinStreamRetentions:
+    """Verify the module-level stream retention registrations."""
+
+    def test_task_distribution_registered(self, mod, StreamRetention):
+        assert mod.get_stream_retention("work:task_distribution") == StreamRetention.WORK
+
+    def test_voice_events_registered(self, mod, StreamRetention):
+        assert mod.get_stream_retention("work:voice_events") == StreamRetention.WORK
+
+    def test_service_request_registered(self, mod, StreamRetention):
+        assert mod.get_stream_retention("work:service_request") == StreamRetention.WORK
+
+    def test_notify_stream_event_registered(self, mod, StreamRetention):
+        assert mod.get_stream_retention("notify:stream_event") == StreamRetention.NOTIFICATION
+
+    def test_notify_log_data_registered(self, mod, StreamRetention):
+        assert mod.get_stream_retention("notify:log_data") == StreamRetention.NOTIFICATION
+
+    def test_notify_voice_tts_registered(self, mod, StreamRetention):
+        assert mod.get_stream_retention("notify:voice_tts_audio_chunk") == StreamRetention.NOTIFICATION
+
+    def test_dlq_task_distribution_registered(self, mod, StreamRetention):
+        assert mod.get_stream_retention("dlq:work:task_distribution") == StreamRetention.DLQ
+
+    def test_dlq_voice_events_registered(self, mod, StreamRetention):
+        assert mod.get_stream_retention("dlq:work:voice_events") == StreamRetention.DLQ
+
+    def test_dlq_service_request_registered(self, mod, StreamRetention):
+        assert mod.get_stream_retention("dlq:work:service_request") == StreamRetention.DLQ
