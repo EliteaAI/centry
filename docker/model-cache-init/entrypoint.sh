@@ -121,6 +121,21 @@ for i in $(seq 0 $((TOTAL - 1))); do
     if [ "$DOWNLOAD_SUCCESS" = "true" ]; then
         DOWNLOADED=$((DOWNLOADED + 1))
         log "  OK: downloaded successfully"
+        #
+        EXTRACT=$(jq -r ".models[$i].extract // false" "$MANIFEST_PATH")
+        EXTRACT_TARGET=$(jq -r ".models[$i].extract_target // empty" "$MANIFEST_PATH")
+        #
+        if [ "$EXTRACT" = "true" ] && [ -n "$EXTRACT_TARGET" ]; then
+            EXTRACT_DIR="${CACHE_DIR}/${EXTRACT_TARGET}"
+            mkdir -p "$EXTRACT_DIR"
+            log "  Extracting to: $EXTRACT_DIR"
+            if tar -xzf "$TARGET_PATH" -C "$EXTRACT_DIR" 2>/dev/null; then
+                log "  OK: extracted successfully"
+                rm -f "$TARGET_PATH"
+            else
+                log "  WARNING: extraction failed, keeping archive"
+            fi
+        fi
     else
         FAILED=$((FAILED + 1))
         log "  FAILED: all $MAX_RETRIES attempts exhausted"

@@ -1,0 +1,46 @@
+{
+  "version": "1.0.0",
+  "description": "Model and data bundles for pylon_indexer init container",
+  "models": [
+    {
+      "name": "nltk-data-all",
+      "url": "s3://elitea-bundles/indexer/nltk-data-all.tar.gz",
+      "path": "nltk/nltk-data-all.tar.gz",
+      "md5": null,
+      "size_mb": 1300,
+      "extract": true,
+      "extract_target": "nltk",
+      "description": "NLTK tokenizers, taggers, and pyodide sandbox base data"
+    },
+    {
+      "name": "deno-pyodide-sandbox",
+      "url": "s3://elitea-bundles/indexer/deno-pyodide-sandbox.tar.gz",
+      "path": "nltk/sandbox/deno-pyodide-sandbox.tar.gz",
+      "md5": null,
+      "size_mb": 200,
+      "extract": true,
+      "extract_target": "nltk/sandbox",
+      "description": "Deno runtime and Pyodide sandbox for code execution"
+    },
+    {
+      "name": "tiktoken-encodings",
+      "url": "s3://elitea-bundles/indexer/tiktoken-encodings.tar.gz",
+      "path": "tiktoken/tiktoken-encodings.tar.gz",
+      "md5": null,
+      "size_mb": 528,
+      "extract": true,
+      "extract_target": "tiktoken",
+      "description": "Tiktoken BPE encoding files for token counting"
+    },
+    {
+      "name": "prisma-binaries",
+      "url": "s3://elitea-bundles/indexer/prisma-binaries.tar.gz",
+      "path": "litellm/prisma/prisma-binaries.tar.gz",
+      "md5": null,
+      "size_mb": 150,
+      "extract": true,
+      "extract_target": "litellm/prisma",
+      "description": "Prisma engine binaries for LiteLLM database operations"
+    }
+  ]
+}
