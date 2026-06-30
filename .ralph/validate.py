@@ -173,22 +173,41 @@ def validate_coverage(validator: dict, project_root: Path) -> tuple[bool, str]:
         except Exception as e:
             return False, f"Error reading coverage: {e}"
     else:
-        # Backend - check for pytest coverage
-        coverage_file = full_path / "coverage.xml"
-        if coverage_file.exists():
-            try:
-                import xml.etree.ElementTree as ET
-                tree = ET.parse(coverage_file)
-                root = tree.getroot()
-                line_rate = float(root.get("line-rate", 0)) * 100
+        # Check for coverage XML (pytest or vitest cobertura)
+        candidates = [
+            full_path / "coverage.xml",
+            full_path / "coverage" / "cobertura-coverage.xml",
+            full_path / "coverage" / "coverage-summary.json",
+        ]
 
-                if line_rate >= threshold:
-                    return True, f"Backend coverage: {line_rate:.1f}% >= {threshold}%"
-                return False, f"Backend coverage: {line_rate:.1f}% < {threshold}%"
-            except Exception as e:
-                return False, f"Error reading coverage.xml: {e}"
+        for coverage_file in candidates:
+            if not coverage_file.exists():
+                continue
 
-        return False, f"No coverage data found. Run: pytest --cov={path}"
+            if coverage_file.name == "coverage-summary.json":
+                try:
+                    with open(coverage_file) as f:
+                        coverage = json.load(f)
+                    total = coverage.get("total", {})
+                    lines_pct = total.get("lines", {}).get("pct", 0)
+                    if lines_pct >= threshold:
+                        return True, f"Coverage: {lines_pct}% >= {threshold}%"
+                    return False, f"Coverage: {lines_pct}% < {threshold}%"
+                except Exception as e:
+                    return False, f"Error reading coverage-summary.json: {e}"
+            else:
+                try:
+                    import xml.etree.ElementTree as ET
+                    tree = ET.parse(coverage_file)
+                    root = tree.getroot()
+                    line_rate = float(root.get("line-rate", 0)) * 100
+                    if line_rate >= threshold:
+                        return True, f"Coverage: {line_rate:.1f}% >= {threshold}%"
+                    return False, f"Coverage: {line_rate:.1f}% < {threshold}%"
+                except Exception as e:
+                    return False, f"Error reading {coverage_file.name}: {e}"
+
+        return False, f"No coverage data found. Run: cd {path} && npx vitest run --coverage"
 
 
 def validate_sql_tables(validator: dict, project_root: Path) -> tuple[bool, str]:

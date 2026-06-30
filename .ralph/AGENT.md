@@ -7,21 +7,22 @@ Updated by each Ralph iteration when discoveries are made.
 
 ```
 eliteaai/
+├── elitea_core/                         # SOURCE REPO (git: EliteaAI/elitea_core) ← EDIT HERE
+│   ├── sio/                            # Socket.IO handlers (asr, mcp, tts)
+│   ├── utils/                          # Utilities (scaling additions go here)
+│   ├── routes/                         # HTTP routes (health endpoints here)
+│   └── module.py                       # Plugin initialization
 ├── centry/                              # Docker orchestration (git: EliteaAI/centry)
 │   ├── docker-compose.yml               # Service definitions
 │   ├── envs/                            # Environment files
-│   ├── pylon_main/                      # Main API service
+│   ├── pylon_main/                      # Main API service (mounted as /data in container)
 │   │   ├── configs/                     # Service configuration
 │   │   │   ├── pylon.yml                # Main pylon config
 │   │   │   └── shared.yml              # Shared settings (DB pools, Redis)
 │   │   └── plugins/
-│   │       └── elitea_core/            # Core plugin (git: EliteaAI/elitea_core)
-│   │           ├── sio/                # Socket.IO handlers (asr, mcp, tts)
-│   │           ├── utils/              # Utilities (scaling additions go here)
-│   │           ├── routes/             # HTTP routes (health endpoints here)
-│   │           └── module.py           # Plugin initialization
+│   │       └── elitea_core/            # RUNTIME CLONE — do NOT edit directly
 │   ├── pylon_indexer/                   # Agent runtime
-│   └── tests/e2e/                       # NEW: Playwright scaling tests
+│   └── tests/e2e/                       # Playwright scaling tests
 ├── EliteaUI/                            # React frontend (git: EliteaAI/EliteaUI)
 ├── pylon/                               # Pylon framework (has RedisManager)
 │   └── pylon/core/tools/server/socketio.py  # Socket.IO adapter support
@@ -29,6 +30,9 @@ eliteaai/
 │   └── arbiter/eventnode/redis.py       # Redis pub/sub implementation
 └── .ralph/                              # This directory
 ```
+
+**IMPORTANT**: `centry/pylon_main/plugins/elitea_core/` is a runtime git clone used by Docker.
+Always edit the SOURCE at `elitea_core/` and commit there. The runtime copy syncs separately.
 
 ## Key Patterns
 
@@ -337,6 +341,170 @@ test('health check returns ok for all pods', async ({ request }) => {
 - Design: `IconStorage(rpc_caller, minio_client)` — RPC for upload/download, MinioClient for delete/list
 - Test file: `centry/tests/unit/scaling/test_icon_storage.py` (48 tests, 100% coverage)
 - Module has zero pylon dependencies (only PIL + stdlib) — can be imported directly in tests without mocking framework
+
+### 2026-06-29: Task 1.7 - Convert /tmp PVC to emptyDir in Staging
+- Pylon Helm chart v1.0.6 has built-in `tmpStorage` support: `tmpStorage.enabled: true`, `tmpStorage.mountPath: /tmp`, `tmpStorage.sizeLimit: XXGi`
+- Chart template renders emptyDir at `/tmp` when `tmpStorage.enabled=true` (deployment.yaml lines 105-136)
+- Previous staging overlay used `extraVolumes`/`extraVolumeMounts` which would CONFLICT with the chart's built-in `tmpStorage` (both try to mount at /tmp)
+- Fix: use native `tmpStorage` in values override, keep `extraVolumes` only for non-chart-supported mounts (e.g. /data/cache)
+- /tmp usage verified as truly ephemeral:
+  - `pylon_main`: CHUNKS_TEMP_DIR (file upload chunks), TASKS_UPLOAD_FOLDER, SECRETS_FILESYSTEM_PATH, STORAGE_FILESYSTEM_PATH — all request-scoped, no persistence needed
+  - `pylon_indexer`: TaskNode intermediate results at `/tmp/tasknode`, bootstrap tempfiles — all ephemeral
+  - NLTK data configured to `/data/cache/nltk` (not /tmp) in staging config
+- Chart template v1.0.6 does NOT support `startupProbe`, `lifecycle`, or `terminationGracePeriodSeconds` — those fields in values are inert until chart is upgraded (tasks 1.12-1.14)
+- ArgoCD staging apps use OCI chart + values ref pattern: chart from `oci://ghcr.io/eliteaai/charts/pylon@1.0.6`, values from git repo `$values/elitea-platform/values/staging/`
+- Staging pylon-main: tmpStorage 10Gi sizeLimit
+- Staging pylon-indexer: tmpStorage 20Gi sizeLimit + extraVolumes cache 60Gi at /data/cache
+
+### 2026-06-29: Task 1.8 - Reduce Database Connection Pools
+- **pylon_main** pool config lives in `centry/pylon_main/configs/shared.yml` under `settings.database_engine_options`
+- **pylon_auth** pool config lives in `centry/pylon_auth/configs/auth_core.yml` under `db_options`
+- **pylon_indexer** has NO local `shared` plugin or SQLAlchemy pool — uses sqlite for pylon_db. In staging, the `shared` plugin is bootstrapped which injects the DB engine (via `force_inject_db: true`)
+- Config flow: `shared.yml` → `Config` class (`shared/tools/config.py`) → `DATABASE_ENGINE_OPTIONS` → `db.py` line 84: `"engine_kwargs": c.DATABASE_ENGINE_OPTIONS.copy()` → `db_support.make_engine()` → `sqlalchemy.create_engine(url, **engine_kwargs)`
+- Previous values (from original dev setup): pylon_main had pool_size=100, max_overflow=200 (absurdly large); pylon_auth had pool_size=25, max_overflow=25
+- New values: pylon_auth=10/5, pylon_main=15/10, pylon_indexer=10/5 (staging only, no local shared plugin)
+- Connection math: steady state = 2×10 + 3×15 + 3×10 = 95; burst = 2×15 + 3×25 + 3×15 = 150; both < 200 max_connections
+- The `Config` class in `config.py:170-177` has DEFAULT pool settings (pool_size=25, max_overflow=25) that only apply when `DATABASE_ENGINE_OPTIONS` is empty/None — our explicit config in shared.yml overrides this
+- `pool_pre_ping=True` was already present in pylon_main; added to pylon_auth to match
+- Test file: `centry/tests/unit/scaling/test_db_connection_pools.py` (27 tests: local config, staging config, connection math, consistency checks)
+- The pylon_indexer's LangGraph `agent_memory_config` uses psycopg directly (not SQLAlchemy pool) — separate concern, not affected by this task
+
+### 2026-06-29: Task 1.9 - Implement Migration Lock with Timeout
+- Created `elitea_core/utils/migration_lock.py`
+- Uses `pg_try_advisory_lock` with polling loop (not blocking `pg_advisory_lock`) to avoid holding connections indefinitely
+- Default lock ID: 900100 (arbitrary large number to avoid collision with app-level advisory locks)
+- Default timeout: 600s (10 minutes), poll interval: 2.0s
+- Context manager `migration_lock(db_url, lock_id, timeout, poll_interval)` yields the connection
+- Creates its own NullPool engine (same pattern as `db_migrations.py`) so lock connection is independent of app pool
+- `_release_lock()` swallows exceptions to guarantee cleanup in finally block
+- `run_migrations_with_lock()` is the integration function — wraps `db_migrations.run_db_migrations` with advisory lock
+- Integration point: replace `db_migrations.run_db_migrations(self, db_url)` with `migration_lock.run_migrations_with_lock(self, db_url)` in module.py init
+- `MigrationLockTimeout` exception raised on failure — callers can catch to implement fallback behavior
+- Uses `getattr(getattr(module, 'descriptor', None), 'name', str(module))` for safe module name logging
+- Test file: `centry/tests/unit/scaling/test_migration_lock.py` (31 tests, 100% coverage)
+- Key test pattern: `patch.object(_mod, "time")` to control time.time() and time.sleep() for deterministic retry tests
+
+### 2026-06-29: Task 1.10 - Add Feature Flags Module
+- Created `elitea_core/utils/feature_flags.py`
+- Existing feature flag patterns in project: `chat_feature_flags.py` (VaultClient-based, per-project), `gateway_feature_flags.py` (config + VaultClient + consistent hashing)
+- Our scaling feature flags are simpler: env var → Redis project override → Redis global → default False
+- Priority chain: `FF_{FLAG_NAME}` env var (highest) > `feature_flags:{project_id}:{flag_name}` Redis key > `feature_flags:global:{flag_name}` Redis key > False (default)
+- KNOWN_FLAGS tuple (not list) for immutability: REDIS_STATE_ENABLED, SOCKETIO_REDIS_ENABLED, REDIS_STREAMS_ENABLED
+- Handles both `decode_responses=True` (str) and `False` (bytes) Redis clients via `isinstance(val, str)` check
+- No TTL on flag keys — flags are intentional configuration, not ephemeral state
+- `FeatureFlags` class takes `redis_client` (DI pattern consistent with other scaling modules)
+- Test file: `centry/tests/unit/scaling/test_feature_flags.py` (38 tests, 100% coverage)
+- Integration point: instantiate `FeatureFlags(self.get_redis_client())` in module.py, use `ff.is_enabled("REDIS_STATE_ENABLED")` to gate new Redis-backed implementations
+
+### 2026-06-29: Task 1.11 - Implement /health/live and /health/ready Endpoints
+- Created `elitea_core/routes/health.py` with two Flask routes
+- Pylon framework already has basic `/healthz`, `/livez`, `/readyz` endpoints (in `pylon/core/tools/server/init.py`) — they just return "OK" text. Our `/health/live` and `/health/ready` are richer with dependency checks and JSON response
+- Route pattern: `@web.route("/health/live")` — methods on the `Route` class get `self` bound to the module instance at runtime
+- `self.get_redis_client()` is the standard way to get Redis in elitea_core (from `methods/redis_client.py`)
+- PostgreSQL check uses `from tools import db as db_tools; db_tools.engine.connect()` — the `tools.db` module exposes `engine` as a module-level var (from `shared/tools/db.py`)
+- SQLAlchemy `text()` must be imported from `sqlalchemy` directly (not from `tools.db`)
+- `_scaling_ready` flag set to `True` at end of `ready()` method (line ~403 in module.py) — signals plugin fully initialized
+- Health endpoints registered as public (no auth): `auth.add_public_rule({"uri": "/app/health/live"})` — note the `/app` prefix (from `url_prefix="/app"` in `init()`)
+- The project root has a `secrets/` directory (pylon plugin) that shadows stdlib `secrets` module — this breaks `flask` import when running pytest from root. Solution: mock `flask` in `sys.modules` before loading the health module in tests
+- Test pattern: mock flask.jsonify with a `FakeJsonResponse` class, mock `sys.modules["tools"]` to provide a fake `db` engine
+- `make_db_engine_mock(pg_ok=True)` pattern: context manager mock on `engine.connect()` for success, `side_effect=Exception(...)` for failure
+- Test file: `centry/tests/unit/scaling/test_health_endpoints.py` (28 tests, 100% coverage)
+
+### 2026-06-30: Task 1.12 - Configure Graceful Shutdown (preStop hooks)
+- Created `elitea_core/utils/graceful_shutdown.py`
+- Pylon's SIGTERM handler (`pylon/core/tools/signal.py:32`) raises `SystemExit` → triggers `finally` block in `main.py:295` → calls `module_manager.deinit_modules()` → each module's `deinit()` in reverse load order
+- `elitea_core/module.py:650` already had a `deinit()` method — added `GracefulShutdown.execute()` as the FIRST step before existing cleanup
+- `GracefulShutdown.execute()` sequence: set shutting_down flag → enumerate SIDs via `sio.manager.get_participants("/", None)` → emit `server_shutting_down` event to each → `sio.disconnect(sid)` → flush Redis (verify connectivity)
+- `sio.manager.get_participants(namespace, room)` yields `(sid, eio_sid)` tuples — room=None returns all connected clients in the namespace
+- `sio.disconnect(sid)` does a server-initiated disconnect (client sees `SERVER_DISCONNECT` reason)
+- Helm chart `deployment.yaml` had NO `lifecycle`, `terminationGracePeriodSeconds`, or `startupProbe` support — added all three as optional values
+- Template pattern: `{{- with .Values.lifecycle }}` + `{{- toYaml . | nindent 12 }}` for flexible lifecycle hook specification
+- `terminationGracePeriodSeconds` goes at `.spec.template.spec` level (pod spec), NOT container level
+- Staging values already had preStop hooks configured from earlier work:
+  - pylon-main: `sleep 15` + terminationGracePeriodSeconds=60
+  - pylon-indexer: `sleep 30` + terminationGracePeriodSeconds=120
+  - pylon-auth: `sleep 5` + terminationGracePeriodSeconds=30
+- The preStop `sleep` gives the load balancer time to deregister the pod from endpoints BEFORE SIGTERM kills the app
+- Gevent server stop: `Greenlet.spawn(context.http_server.stop, timeout=None).join()` — stops accepting new connections but doesn't explicitly drain existing ones
+- Socket.IO server has no `shutdown()` method in sync mode (only `AsyncServer` has it) — our disconnect-all approach is the correct pattern for sync Server
+- Test file: `centry/tests/unit/scaling/test_graceful_shutdown.py` (24 tests, 95% coverage)
+- Coverage: `--cov=graceful_shutdown` works because importlib loads it with that module name into sys.modules
+
+### 2026-06-30: Task 1.13 - Set terminationGracePeriodSeconds
+- Already configured in staging values during task 1.12 (graceful shutdown):
+  - pylon-main: `terminationGracePeriodSeconds: 60` (values/staging/pylon-main.yaml:11)
+  - pylon-indexer: `terminationGracePeriodSeconds: 120` (values/staging/pylon-indexer.yaml:11)
+  - pylon-auth: `terminationGracePeriodSeconds: 30` (values/staging/pylon-auth.yaml:11)
+- Chart template at `charts/charts/pylon/templates/deployment.yaml:39-41` renders the field conditionally: `{{- if .Values.terminationGracePeriodSeconds }}`
+- Chart also supports `lifecycle` (lines 78-81) and `startupProbe` (lines 74-77) via `{{- with .Values.X }}` pattern
+- This task was a no-op — work already done in 1.12 iteration
+
+### 2026-06-30: Task 1.14 - Configure Liveness/Readiness Probes
+- Helm chart `deployment.yaml` already supports `livenessProbe`, `readinessProbe`, `startupProbe` via `{{- with .Values.X }}` blocks (lines 66-77)
+- **Critical routing insight**: pylon's root_router (`wsgi.py:RouterApp`) matches routes by length (longest first)
+  - Built-in health endpoints (`/healthz/`, `/livez/`, `/readyz/`) are registered at root level on root_router
+  - Flask apps are mounted at `/{url_prefix}/` which may be longer than health paths
+  - For pylon-auth with `server.path: /forward-auth/`: probing `/forward-auth/healthz` hits Flask app (404), NOT the built-in health endpoint
+  - Correct: probe at `/livez` or `/healthz` (root level) for services without custom health routes
+- **Probe path mapping**:
+  - pylon-main: `/app/health/live` and `/app/health/ready` (elitea_core blueprint prefix = `/app`)
+  - pylon-indexer: `/livez` and `/readyz` (pylon built-in, no elitea_core plugin)
+  - pylon-auth: `/livez` and `/readyz` (pylon built-in, no custom health routes)
+- Pylon's built-in `/healthz/`, `/livez/`, `/readyz/` just return "OK" (200) text — no dependency checks
+- elitea_core's `/app/health/live` checks Redis + PostgreSQL connectivity; `/app/health/ready` also checks plugin init state
+- `auth.add_public_rule({"uri": "/app/health/live"})` exempts the endpoint from auth (line 530-531 in module.py)
+- Staging values had incorrect probe paths from earlier iterations — fixed:
+  - pylon-main: `/health/live` → `/app/health/live` (added `/app` prefix)
+  - pylon-indexer: `/health/live` → `/livez` (uses built-in since no elitea_core)
+  - pylon-auth: `/forward-auth/healthz` → `/livez` (root level, not under Flask app prefix)
+  - pylon-auth: added missing `startupProbe` (was not present before)
+- Timing rationale:
+  - pylon-indexer needs longer delays (initialDelay=120 for liveness) due to heavy plugin init + pip install + model loading
+  - Startup probe `failureThreshold=30 × period=10 = 300s` max boot time for all services
+  - pylon-auth fastest to boot (30s terminationGrace, 30s liveness delay)
+- Test file: `centry/tests/unit/scaling/test_health_probes_config.py` (53 tests, validates YAML config + timing + path correctness)
+
+### 2026-06-30: Task 1.15 - Update Socket.IO Client with Auto-Reconnect
+- Socket.IO client initialization lives in `EliteaUI/src/[fsd]/app/root.jsx`
+- All reconnection config was ALREADY present: reconnection=true, reconnectionDelay=1000, reconnectionDelayMax=5000, reconnectionAttempts=10, randomizationFactor=0.5
+- Redux state for socket: `socketConnected`, `socketReconnecting`, `socketReconnectAttempt` in `slices/settings.js`
+- Event handlers already set up: `connect`, `connect_error`, `disconnect`, `reconnect_attempt` (on `socketIo.io`), `reconnect` (on `socketIo.io`), `reconnect_failed` (on `socketIo.io`)
+- **KEY FINDING**: socket.io-client v4 does NOT auto-reconnect when server forces disconnect (`sio.disconnect(sid)`) — `socket.active` will be `false`. Added `if (!socketIo.active) { setTimeout(() => socketIo.connect(), 1000); }` in disconnect handler
+- Added `server_shutting_down` event handler that sets `socketReconnecting` state before the actual disconnect happens (from task 1.12's graceful shutdown)
+- The `SocketContext` at `contexts/SocketContext.jsx` is just `React.createContext(undefined)` — socket instance set via `setSocket(socketIo)` on connect
+
+### 2026-06-30: Task 1.16 - Connection State Indicator to UI
+- Connection state indicator ALREADY EXISTS as a colored dot (0.5rem circle) next to the EliteA logo in the sidebar
+- Located in `[fsd]/widgets/sidebar-root/ui/SidebarBody.jsx` lines 277-288 (render) and 477-491 (styles)
+- `useSocketIcon` hook at `[fsd]/widgets/sidebar-root/lib/hooks/useSocketIcon.hooks.jsx` derives status from Redux
+- Constants at `[fsd]/widgets/sidebar-root/lib/constants/socket.constants.js`: Connected/Reconnecting/Disconnected
+- Color mapping: Connected=`palette.icon.fill.success` (green), Reconnecting=`palette.warning.main` (yellow), Disconnected=`palette.icon.fill.error` (red)
+- Tooltip shows "reconnecting (attempt X/10)" during reconnection
+- `isSocketIconVisible: true` — always visible (no auto-hide), which is better UX for always-connected app
+- Existing implementation uses dot indicator rather than MUI Chip, but achieves same purpose
+- No new component needed — task subtasks marked complete since functionality exists (different approach than planned but equivalent)
+
+### 2026-06-30: Task 0.1 - Migrate elitea_core Changes to Source Repo
+- Source repo: `elitea_core/` (on `main`, created `feature/horizontal-scaling-phase-1`)
+- Runtime copy: `centry/pylon_main/plugins/elitea_core/` (on `feature/horizontal-scaling-phase-1` with 7 commits + 3 untracked files)
+- `git show <branch>:<path>` used to extract files from runtime feature branch; `cat` for untracked files
+- `.gitignore` had `MIGRATION*` (no leading `/`) which, with `core.ignoreCase=true` on macOS, matched `utils/migration_lock.py` — fixed to `/MIGRATION*` to scope it to root-level files only
+- `*.md` in `.gitignore` means no markdown can be committed to elitea_core — this is intentional (docs live elsewhere)
+- `utils/gateway_feature_flags.py` was also untracked in runtime copy but is NOT part of scaling work (LLM Gateway concern) — skipped
+- After migration, validator shows 19/20 passing (only F1.20 E2E test coverage remains)
+- Commit hash: `72acd3c` in `elitea_core/` source repo
+
+### 2026-06-30: Task 1.20 - Achieve 85% Test Coverage for E2E Utilities
+- Test files already existed for `utils/kubernetes.ts`, `utils/api-client.ts`, `utils/socket-client.ts`, and `pages/LoginPage.ts` (+ BasePage)
+- `pages/ChatPage.ts` had 0% coverage — created `pages/ChatPage.test.ts` with 12 tests covering all methods
+- `LoginPage.ts` had 91% coverage (missing `verifyLoggedIn` at lines 36-38) — added test for it
+- `ChatPage.waitForSocketConnected()` passes an inline function to `page.waitForFunction` — the function body (DOM access) can't execute in vitest, so lines 51-52 remain uncovered (95% per-file)
+- `vitest.config.ts` already had `@vitest/coverage-v8` configured with 85% thresholds and `include: ['utils/**/*.ts', 'pages/**/*.ts']`
+- Added `'cobertura'` to the reporter list so the validator can parse XML coverage output
+- Validator (`validate.py`) only looked for `coverage.xml` (pytest format) or `EliteaUI/coverage/coverage-summary.json` — updated to also check `{path}/coverage/cobertura-coverage.xml` and `{path}/coverage/coverage-summary.json`
+- Final coverage: 99.35% statements, 100% branches, 98.14% functions, 99.35% lines
+- 85 tests total across 5 test files, all passing
+- Mocking pattern for Playwright `Page`: create `createMockPage()` factory returning object with `locator`, `waitForLoadState`, `goto`, `context`, etc. — cast as `any` when constructing page objects
 
 ---
 *Last updated by Ralph iteration*
