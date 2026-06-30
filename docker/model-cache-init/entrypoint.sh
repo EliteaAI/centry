@@ -6,6 +6,21 @@ CACHE_DIR="${CACHE_DIR:-/cache}"
 MAX_RETRIES="${MAX_RETRIES:-3}"
 VERIFY_ONLY="${VERIFY_ONLY:-false}"
 
+# Parse CLI flags
+for arg in "$@"; do
+    case "$arg" in
+        --verify-only)
+            VERIFY_ONLY="true"
+            ;;
+        --manifest=*)
+            MANIFEST_PATH="${arg#*=}"
+            ;;
+        --cache-dir=*)
+            CACHE_DIR="${arg#*=}"
+            ;;
+    esac
+done
+
 log() {
     echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $1"
 }
@@ -13,6 +28,28 @@ log() {
 die() {
     log "ERROR: $1"
     exit 1
+}
+
+# Validate MD5 of a file against expected checksum.
+# Returns 0 if valid, 1 if mismatch, 2 if no MD5 to check.
+validate_md5() {
+    local file_path="$1"
+    local expected_md5="$2"
+    local file_name="$3"
+
+    if [ "$expected_md5" = "null" ] || [ -z "$expected_md5" ]; then
+        return 2
+    fi
+
+    local actual_md5
+    actual_md5=$(md5sum "$file_path" | awk '{print $1}')
+
+    if [ "$actual_md5" = "$expected_md5" ]; then
+        return 0
+    else
+        log "  MD5 MISMATCH: file=$file_name expected=$expected_md5 actual=$actual_md5"
+        return 1
+    fi
 }
 
 if [ ! -f "$MANIFEST_PATH" ]; then
@@ -29,10 +66,18 @@ TOTAL=$(jq '.models | length' "$MANIFEST_PATH")
 DOWNLOADED=0
 SKIPPED=0
 FAILED=0
+VALID=0
+INVALID=0
 
 log "Starting model cache sync: $TOTAL files to process"
 log "Cache directory: $CACHE_DIR"
 log "Verify only: $VERIFY_ONLY"
+
+if [ "$TOTAL" -eq 0 ]; then
+    log "No models in manifest, nothing to do"
+    log "Model cache sync complete"
+    exit 0
+fi
 
 for i in $(seq 0 $((TOTAL - 1))); do
     NAME=$(jq -r ".models[$i].name" "$MANIFEST_PATH")
@@ -46,28 +91,42 @@ for i in $(seq 0 $((TOTAL - 1))); do
 
     log "[$((i+1))/$TOTAL] Processing: $NAME (${SIZE_MB}MB)"
 
-    if [ -f "$TARGET_PATH" ]; then
-        if [ "$EXPECTED_MD5" != "null" ] && [ -n "$EXPECTED_MD5" ]; then
-            ACTUAL_MD5=$(md5sum "$TARGET_PATH" | awk '{print $1}')
-            if [ "$ACTUAL_MD5" = "$EXPECTED_MD5" ]; then
-                log "  SKIP: already cached with correct MD5"
-                SKIPPED=$((SKIPPED + 1))
-                continue
-            else
-                log "  MISMATCH: expected=$EXPECTED_MD5 actual=$ACTUAL_MD5"
-                rm -f "$TARGET_PATH"
-            fi
+    # --- Verify-only mode: check file presence and integrity, never download/delete ---
+    if [ "$VERIFY_ONLY" = "true" ]; then
+        if [ ! -f "$TARGET_PATH" ]; then
+            log "  MISSING: file=$PATH_REL (not found in cache)"
+            FAILED=$((FAILED + 1))
         else
-            log "  SKIP: file exists (no MD5 to verify)"
-            SKIPPED=$((SKIPPED + 1))
-            continue
+            validate_md5 "$TARGET_PATH" "$EXPECTED_MD5" "$PATH_REL" && md5_rc=0 || md5_rc=$?
+            if [ "$md5_rc" -eq 0 ]; then
+                log "  VALID: file=$PATH_REL MD5 matches"
+                VALID=$((VALID + 1))
+            elif [ "$md5_rc" -eq 2 ]; then
+                log "  VALID: file=$PATH_REL (no MD5 configured, file exists)"
+                VALID=$((VALID + 1))
+            else
+                INVALID=$((INVALID + 1))
+                FAILED=$((FAILED + 1))
+            fi
         fi
+        continue
     fi
 
-    if [ "$VERIFY_ONLY" = "true" ]; then
-        log "  MISSING: $TARGET_PATH (verify-only mode, not downloading)"
-        FAILED=$((FAILED + 1))
-        continue
+    # --- Normal mode: check cache, download if needed ---
+    if [ -f "$TARGET_PATH" ]; then
+        validate_md5 "$TARGET_PATH" "$EXPECTED_MD5" "$PATH_REL" && md5_rc=0 || md5_rc=$?
+        if [ "$md5_rc" -eq 0 ]; then
+            log "  SKIP: file=$PATH_REL already cached with correct MD5"
+            SKIPPED=$((SKIPPED + 1))
+            continue
+        elif [ "$md5_rc" -eq 2 ]; then
+            log "  SKIP: file=$PATH_REL exists (no MD5 to verify)"
+            SKIPPED=$((SKIPPED + 1))
+            continue
+        else
+            log "  Deleting corrupt file: $PATH_REL"
+            rm -f "$TARGET_PATH"
+        fi
     fi
 
     mkdir -p "$TARGET_DIR"
@@ -79,8 +138,6 @@ for i in $(seq 0 $((TOTAL - 1))); do
         DOWNLOAD_CMD=""
         case "$URL" in
             s3://*)
-                BUCKET=$(echo "$URL" | sed 's|s3://||' | cut -d'/' -f1)
-                KEY=$(echo "$URL" | sed "s|s3://${BUCKET}/||")
                 DOWNLOAD_CMD="aws s3 cp \"$URL\" \"$TARGET_PATH\" --no-progress"
                 ;;
             http://*|https://*)
@@ -93,21 +150,16 @@ for i in $(seq 0 $((TOTAL - 1))); do
         esac
 
         if eval "$DOWNLOAD_CMD" 2>/dev/null; then
-            if [ "$EXPECTED_MD5" != "null" ] && [ -n "$EXPECTED_MD5" ]; then
-                ACTUAL_MD5=$(md5sum "$TARGET_PATH" | awk '{print $1}')
-                if [ "$ACTUAL_MD5" = "$EXPECTED_MD5" ]; then
-                    DOWNLOAD_SUCCESS=true
-                    break
-                else
-                    log "  MD5 mismatch after download: expected=$EXPECTED_MD5 actual=$ACTUAL_MD5"
-                    rm -f "$TARGET_PATH"
-                fi
-            else
+            validate_md5 "$TARGET_PATH" "$EXPECTED_MD5" "$PATH_REL" && md5_rc=0 || md5_rc=$?
+            if [ "$md5_rc" -eq 0 ] || [ "$md5_rc" -eq 2 ]; then
                 DOWNLOAD_SUCCESS=true
                 break
+            else
+                log "  Deleting corrupt download: $PATH_REL"
+                rm -f "$TARGET_PATH"
             fi
         else
-            log "  Download failed"
+            log "  Download failed for: $PATH_REL"
             rm -f "$TARGET_PATH"
         fi
 
@@ -120,11 +172,11 @@ for i in $(seq 0 $((TOTAL - 1))); do
 
     if [ "$DOWNLOAD_SUCCESS" = "true" ]; then
         DOWNLOADED=$((DOWNLOADED + 1))
-        log "  OK: downloaded successfully"
-        #
+        log "  OK: downloaded successfully file=$PATH_REL"
+
         EXTRACT=$(jq -r ".models[$i].extract // false" "$MANIFEST_PATH")
         EXTRACT_TARGET=$(jq -r ".models[$i].extract_target // empty" "$MANIFEST_PATH")
-        #
+
         if [ "$EXTRACT" = "true" ] && [ -n "$EXTRACT_TARGET" ]; then
             EXTRACT_DIR="${CACHE_DIR}/${EXTRACT_TARGET}"
             mkdir -p "$EXTRACT_DIR"
@@ -138,15 +190,23 @@ for i in $(seq 0 $((TOTAL - 1))); do
         fi
     else
         FAILED=$((FAILED + 1))
-        log "  FAILED: all $MAX_RETRIES attempts exhausted"
+        log "  FAILED: file=$PATH_REL all $MAX_RETRIES attempts exhausted"
     fi
 done
 
 log "---"
-log "Summary: total=$TOTAL downloaded=$DOWNLOADED skipped=$SKIPPED failed=$FAILED"
+if [ "$VERIFY_ONLY" = "true" ]; then
+    log "Verification summary: total=$TOTAL valid=$VALID invalid=$INVALID missing=$((FAILED - INVALID))"
+else
+    log "Summary: total=$TOTAL downloaded=$DOWNLOADED skipped=$SKIPPED failed=$FAILED"
+fi
 
 if [ "$FAILED" -gt 0 ]; then
-    die "Failed to download $FAILED files"
+    if [ "$VERIFY_ONLY" = "true" ]; then
+        die "Verification failed: $FAILED files missing or corrupt"
+    else
+        die "Failed to download $FAILED files"
+    fi
 fi
 
 log "Model cache sync complete"
