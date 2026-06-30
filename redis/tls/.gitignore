@@ -1,0 +1,3 @@
+# Private keys should not be committed in production.
+# For dev self-signed certs, we include them for convenience.
+# In staging/production, use externally-managed certificates.

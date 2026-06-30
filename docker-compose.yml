@@ -1,7 +1,14 @@
 services:
   redis:
     image: redis:8.2.4-alpine
-    command: sh -c 'exec redis-server /etc/redis/redis.conf --requirepass $$REDIS_PASSWORD'
+    command: >-
+      sh -c '
+        if [ "$$REDIS_TLS_ENABLED" = "true" ]; then
+          exec redis-server /etc/redis/redis-tls.conf --requirepass $$REDIS_PASSWORD
+        else
+          exec redis-server /etc/redis/redis.conf --requirepass $$REDIS_PASSWORD
+        fi
+      '
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -13,6 +20,8 @@ services:
       - ./envs/override.env
     volumes:
       - ./redis/redis.conf:/etc/redis/redis.conf:ro
+      - ./redis/redis-tls.conf:/etc/redis/redis-tls.conf:ro
+      - ./redis/tls:/tls:ro
       - redis-data:/data
     networks:
       - centry
@@ -28,9 +37,21 @@ services:
     env_file:
       - ./envs/default.env
       - ./envs/override.env
-    command: sh -c 'cp /etc/redis/sentinel.conf /tmp/sentinel.conf && sed -i "s/REDIS_PASSWORD_PLACEHOLDER/$$REDIS_PASSWORD/" /tmp/sentinel.conf && exec redis-sentinel /tmp/sentinel.conf'
+    command: >-
+      sh -c '
+        if [ "$$REDIS_TLS_ENABLED" = "true" ]; then
+          CONF=/etc/redis/sentinel-tls.conf
+        else
+          CONF=/etc/redis/sentinel.conf
+        fi
+        cp $$CONF /tmp/sentinel.conf
+        sed -i "s/REDIS_PASSWORD_PLACEHOLDER/$$REDIS_PASSWORD/" /tmp/sentinel.conf
+        exec redis-sentinel /tmp/sentinel.conf
+      '
     volumes:
       - ./redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+      - ./redis/sentinel-tls.conf:/etc/redis/sentinel-tls.conf:ro
+      - ./redis/tls:/tls:ro
     depends_on:
       - redis
     healthcheck:
@@ -53,9 +74,21 @@ services:
     env_file:
       - ./envs/default.env
       - ./envs/override.env
-    command: sh -c 'cp /etc/redis/sentinel.conf /tmp/sentinel.conf && sed -i "s/REDIS_PASSWORD_PLACEHOLDER/$$REDIS_PASSWORD/" /tmp/sentinel.conf && exec redis-sentinel /tmp/sentinel.conf'
+    command: >-
+      sh -c '
+        if [ "$$REDIS_TLS_ENABLED" = "true" ]; then
+          CONF=/etc/redis/sentinel-tls.conf
+        else
+          CONF=/etc/redis/sentinel.conf
+        fi
+        cp $$CONF /tmp/sentinel.conf
+        sed -i "s/REDIS_PASSWORD_PLACEHOLDER/$$REDIS_PASSWORD/" /tmp/sentinel.conf
+        exec redis-sentinel /tmp/sentinel.conf
+      '
     volumes:
       - ./redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+      - ./redis/sentinel-tls.conf:/etc/redis/sentinel-tls.conf:ro
+      - ./redis/tls:/tls:ro
     depends_on:
       - redis
     healthcheck:
@@ -78,9 +111,21 @@ services:
     env_file:
       - ./envs/default.env
       - ./envs/override.env
-    command: sh -c 'cp /etc/redis/sentinel.conf /tmp/sentinel.conf && sed -i "s/REDIS_PASSWORD_PLACEHOLDER/$$REDIS_PASSWORD/" /tmp/sentinel.conf && exec redis-sentinel /tmp/sentinel.conf'
+    command: >-
+      sh -c '
+        if [ "$$REDIS_TLS_ENABLED" = "true" ]; then
+          CONF=/etc/redis/sentinel-tls.conf
+        else
+          CONF=/etc/redis/sentinel.conf
+        fi
+        cp $$CONF /tmp/sentinel.conf
+        sed -i "s/REDIS_PASSWORD_PLACEHOLDER/$$REDIS_PASSWORD/" /tmp/sentinel.conf
+        exec redis-sentinel /tmp/sentinel.conf
+      '
     volumes:
       - ./redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+      - ./redis/sentinel-tls.conf:/etc/redis/sentinel-tls.conf:ro
+      - ./redis/tls:/tls:ro
     depends_on:
       - redis
     healthcheck:
