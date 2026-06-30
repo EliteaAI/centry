@@ -76,7 +76,7 @@ services:
       - ./ssl:/ssl
     depends_on:
       - redis
-      - postgres
+      - pgbouncer
     networks:
       - centry
 
@@ -103,7 +103,7 @@ services:
       # - 443:8443
     depends_on:
       - redis
-      - postgres
+      - pgbouncer
     networks:
       - centry
 
@@ -127,6 +127,7 @@ services:
       - ./ssl:/ssl
     depends_on:
       - redis
+      - pgbouncer
     networks:
       - centry
 
@@ -152,7 +153,7 @@ services:
       - "8082:8080"
     depends_on:
       - redis
-      - postgres
+      - pgbouncer
       - pylon_auth
     networks:
       - centry
