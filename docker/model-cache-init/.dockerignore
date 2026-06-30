@@ -1,0 +1,6 @@
+*.md
+.git
+.gitignore
+manifest.json
+manifest-schema.json
+validate-manifest.sh
