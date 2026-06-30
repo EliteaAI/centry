@@ -246,6 +246,7 @@ services:
         max-size: "10m"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yaml:/etc/prometheus/alerts.yaml:ro
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
