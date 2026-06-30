@@ -213,20 +213,37 @@ class TestDefault:
 
 class TestSetFlag:
     def test_set_global_enabled(self, ff, mock_redis):
+        import json
         ff.set_flag("REDIS_STATE_ENABLED", True)
-        mock_redis.set.assert_called_once_with("feature_flags:global:REDIS_STATE_ENABLED", "1")
+        key, value = mock_redis.set.call_args[0]
+        assert key == "feature_flags:global:REDIS_STATE_ENABLED"
+        data = json.loads(value)
+        assert data["enabled"] is True
+        assert data["rollout_pct"] == 100
 
     def test_set_global_disabled(self, ff, mock_redis):
+        import json
         ff.set_flag("REDIS_STATE_ENABLED", False)
-        mock_redis.set.assert_called_once_with("feature_flags:global:REDIS_STATE_ENABLED", "0")
+        key, value = mock_redis.set.call_args[0]
+        assert key == "feature_flags:global:REDIS_STATE_ENABLED"
+        data = json.loads(value)
+        assert data["enabled"] is False
 
     def test_set_project_enabled(self, ff, mock_redis):
+        import json
         ff.set_flag("SOCKETIO_REDIS_ENABLED", True, project_id=99)
-        mock_redis.set.assert_called_once_with("feature_flags:99:SOCKETIO_REDIS_ENABLED", "1")
+        key, value = mock_redis.set.call_args[0]
+        assert key == "feature_flags:99:SOCKETIO_REDIS_ENABLED"
+        data = json.loads(value)
+        assert data["enabled"] is True
 
     def test_set_project_disabled(self, ff, mock_redis):
+        import json
         ff.set_flag("REDIS_STREAMS_ENABLED", False, project_id=5)
-        mock_redis.set.assert_called_once_with("feature_flags:5:REDIS_STREAMS_ENABLED", "0")
+        key, value = mock_redis.set.call_args[0]
+        assert key == "feature_flags:5:REDIS_STREAMS_ENABLED"
+        data = json.loads(value)
+        assert data["enabled"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -357,4 +374,4 @@ class TestKnownFlags:
         assert "REDIS_STREAMS_ENABLED" in KNOWN_FLAGS
 
     def test_known_flags_count(self):
-        assert len(KNOWN_FLAGS) == 3
+        assert len(KNOWN_FLAGS) == 7
