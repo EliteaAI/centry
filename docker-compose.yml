@@ -1,7 +1,7 @@
 services:
   redis:
     image: redis:8.2.4-alpine
-    command: sh -c 'exec redis-server --requirepass $$REDIS_PASSWORD --save 300 1 --dir /data/ --dbfilename dump.rdb'
+    command: sh -c 'exec redis-server /etc/redis/redis.conf --requirepass $$REDIS_PASSWORD'
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -12,6 +12,7 @@ services:
       - ./envs/default.env
       - ./envs/override.env
     volumes:
+      - ./redis/redis.conf:/etc/redis/redis.conf:ro
       - redis-data:/data
     networks:
       - centry
