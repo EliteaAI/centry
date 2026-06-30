@@ -62,6 +62,28 @@ fi
 
 mkdir -p "$CACHE_DIR"
 
+# Record start time for duration metric
+SYNC_START_TIME=$(date +%s)
+
+# --- Cache versioning: compare manifest version with cached version ---
+MANIFEST_VERSION=$(jq -r '.version // empty' "$MANIFEST_PATH")
+VERSION_FILE="${CACHE_DIR}/.manifest-version"
+
+if [ -n "$MANIFEST_VERSION" ] && [ "$VERIFY_ONLY" = "false" ]; then
+    if [ -f "$VERSION_FILE" ]; then
+        CACHED_VERSION=$(cat "$VERSION_FILE")
+        if [ "$CACHED_VERSION" != "$MANIFEST_VERSION" ]; then
+            log "Cache version mismatch: cached=$CACHED_VERSION manifest=$MANIFEST_VERSION"
+            log "Clearing cache for clean re-download..."
+            find "$CACHE_DIR" -mindepth 1 -not -name '.manifest-version' -delete 2>/dev/null || true
+        else
+            log "Cache version matches: $MANIFEST_VERSION (incremental sync)"
+        fi
+    else
+        log "No cached version found, performing full download (version=$MANIFEST_VERSION)"
+    fi
+fi
+
 TOTAL=$(jq '.models | length' "$MANIFEST_PATH")
 DOWNLOADED=0
 SKIPPED=0
@@ -207,6 +229,20 @@ if [ "$FAILED" -gt 0 ]; then
     else
         die "Failed to download $FAILED files"
     fi
+fi
+
+# Write manifest version to cache after successful sync
+if [ -n "$MANIFEST_VERSION" ] && [ "$VERIFY_ONLY" = "false" ]; then
+    echo "$MANIFEST_VERSION" > "$VERSION_FILE"
+    log "Wrote cache version: $MANIFEST_VERSION"
+fi
+
+# Write Prometheus metrics
+SYNC_END_TIME=$(date +%s)
+SYNC_DURATION=$((SYNC_END_TIME - SYNC_START_TIME))
+METRICS_SCRIPT="$(dirname "$0")/metrics.sh"
+if [ -f "$METRICS_SCRIPT" ]; then
+    bash "$METRICS_SCRIPT" "$SYNC_DURATION" "$DOWNLOADED" "$SKIPPED" "$FAILED" "$TOTAL"
 fi
 
 log "Model cache sync complete"

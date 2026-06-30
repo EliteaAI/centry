@@ -9,6 +9,7 @@ RUN apk add --no-cache \
     aws-cli
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY metrics.sh /usr/local/bin/metrics.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/metrics.sh
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

@@ -443,6 +443,483 @@ EOF
     teardown
 }
 
+# ---------- Test: Version match — incremental sync, files kept ----------
+test_version_match_incremental() {
+    echo "--- test_version_match_incremental ---"
+    setup
+
+    # Pre-populate version file and a cached file
+    echo "1.0.0" > "$CACHE_DIR/.manifest-version"
+    echo -n "cached data" > "$CACHE_DIR/model.bin"
+    local expected_md5
+    expected_md5=$(md5sum "$CACHE_DIR/model.bin" | awk '{print $1}')
+
+    cat > "$MANIFEST_PATH" <<EOF
+{
+  "version": "1.0.0",
+  "models": [
+    {
+      "name": "model",
+      "url": "http://localhost:9999/model.bin",
+      "path": "model.bin",
+      "md5": "$expected_md5",
+      "size_mb": 0
+    }
+  ]
+}
+EOF
+
+    set +e
+    output=$("$ENTRYPOINT" 2>&1)
+    rc=$?
+    set -e
+
+    if [ "$rc" -ne 0 ]; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: expected exit 0, got $rc"
+    else
+        PASS=$((PASS + 1))
+    fi
+    assert_contains "Cache version matches: 1.0.0" "$output"
+    assert_contains "skipped=1" "$output"
+    assert_file_exists "$CACHE_DIR/model.bin"
+    teardown
+}
+
+# ---------- Test: Version mismatch — cache cleared, re-download attempted ----------
+test_version_mismatch_clears_cache() {
+    echo "--- test_version_mismatch_clears_cache ---"
+    setup
+
+    # Pre-populate old version and a stale file
+    echo "0.9.0" > "$CACHE_DIR/.manifest-version"
+    echo -n "old cached data" > "$CACHE_DIR/stale.bin"
+
+    cat > "$MANIFEST_PATH" <<EOF
+{
+  "version": "1.0.0",
+  "models": [
+    {
+      "name": "model",
+      "url": "http://localhost:9999/unavailable.bin",
+      "path": "model.bin",
+      "md5": null,
+      "size_mb": 0
+    }
+  ]
+}
+EOF
+
+    set +e
+    output=$("$ENTRYPOINT" 2>&1)
+    rc=$?
+    set -e
+
+    # Download will fail (no server), but we verify cache was cleared
+    assert_contains "Cache version mismatch: cached=0.9.0 manifest=1.0.0" "$output"
+    assert_contains "Clearing cache" "$output"
+    assert_file_not_exists "$CACHE_DIR/stale.bin"
+    teardown
+}
+
+# ---------- Test: No version file — performs full download ----------
+test_no_version_file_full_download() {
+    echo "--- test_no_version_file_full_download ---"
+    setup
+
+    echo -n "existing" > "$CACHE_DIR/model.bin"
+    local expected_md5
+    expected_md5=$(md5sum "$CACHE_DIR/model.bin" | awk '{print $1}')
+
+    cat > "$MANIFEST_PATH" <<EOF
+{
+  "version": "2.0.0",
+  "models": [
+    {
+      "name": "model",
+      "url": "http://localhost:9999/model.bin",
+      "path": "model.bin",
+      "md5": "$expected_md5",
+      "size_mb": 0
+    }
+  ]
+}
+EOF
+
+    set +e
+    output=$("$ENTRYPOINT" 2>&1)
+    rc=$?
+    set -e
+
+    if [ "$rc" -ne 0 ]; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: expected exit 0, got $rc"
+    else
+        PASS=$((PASS + 1))
+    fi
+    assert_contains "No cached version found" "$output"
+    # File still exists (not cleared because there's no old version to compare)
+    assert_file_exists "$CACHE_DIR/model.bin"
+    # Version file written after success
+    assert_file_exists "$CACHE_DIR/.manifest-version"
+    # Check version file content
+    local written_version
+    written_version=$(cat "$CACHE_DIR/.manifest-version")
+    if [ "$written_version" = "2.0.0" ]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: expected version file '2.0.0', got '$written_version'"
+    fi
+    teardown
+}
+
+# ---------- Test: Version written after successful sync ----------
+test_version_written_on_success() {
+    echo "--- test_version_written_on_success ---"
+    setup
+
+    echo -n "data" > "$CACHE_DIR/f.bin"
+    local expected_md5
+    expected_md5=$(md5sum "$CACHE_DIR/f.bin" | awk '{print $1}')
+
+    cat > "$MANIFEST_PATH" <<EOF
+{
+  "version": "3.1.0",
+  "models": [
+    {
+      "name": "f",
+      "url": "http://localhost:9999/f.bin",
+      "path": "f.bin",
+      "md5": "$expected_md5",
+      "size_mb": 0
+    }
+  ]
+}
+EOF
+
+    set +e
+    output=$("$ENTRYPOINT" 2>&1)
+    rc=$?
+    set -e
+
+    if [ "$rc" -ne 0 ]; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: expected exit 0, got $rc"
+    else
+        PASS=$((PASS + 1))
+    fi
+    assert_contains "Wrote cache version: 3.1.0" "$output"
+    assert_file_exists "$CACHE_DIR/.manifest-version"
+    local v
+    v=$(cat "$CACHE_DIR/.manifest-version")
+    if [ "$v" = "3.1.0" ]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: version file content mismatch: expected 3.1.0, got $v"
+    fi
+    teardown
+}
+
+# ---------- Test: Version NOT written on failure ----------
+test_version_not_written_on_failure() {
+    echo "--- test_version_not_written_on_failure ---"
+    setup
+
+    cat > "$MANIFEST_PATH" <<EOF
+{
+  "version": "4.0.0",
+  "models": [
+    {
+      "name": "fail-model",
+      "url": "http://localhost:9999/no-such-file.bin",
+      "path": "fail.bin",
+      "md5": "abc123",
+      "size_mb": 0
+    }
+  ]
+}
+EOF
+
+    set +e
+    output=$("$ENTRYPOINT" 2>&1)
+    rc=$?
+    set -e
+
+    if [ "$rc" -ne 1 ]; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: expected exit 1, got $rc"
+    else
+        PASS=$((PASS + 1))
+    fi
+    # Version file should NOT be written since the sync failed
+    assert_file_not_exists "$CACHE_DIR/.manifest-version"
+    teardown
+}
+
+# ---------- Test: Verify-only does NOT check or write version ----------
+test_verify_only_ignores_version() {
+    echo "--- test_verify_only_ignores_version ---"
+    setup
+
+    # Stale version — verify-only should not clear cache or write version
+    echo "0.1.0" > "$CACHE_DIR/.manifest-version"
+    echo -n "data" > "$CACHE_DIR/v.bin"
+    local expected_md5
+    expected_md5=$(md5sum "$CACHE_DIR/v.bin" | awk '{print $1}')
+
+    cat > "$MANIFEST_PATH" <<EOF
+{
+  "version": "9.9.9",
+  "models": [
+    {
+      "name": "v",
+      "url": "s3://bucket/v.bin",
+      "path": "v.bin",
+      "md5": "$expected_md5",
+      "size_mb": 0
+    }
+  ]
+}
+EOF
+
+    set +e
+    output=$("$ENTRYPOINT" --verify-only 2>&1)
+    rc=$?
+    set -e
+
+    if [ "$rc" -ne 0 ]; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: expected exit 0, got $rc"
+    else
+        PASS=$((PASS + 1))
+    fi
+    # File should still exist (not cleared despite version mismatch)
+    assert_file_exists "$CACHE_DIR/v.bin"
+    # Version file should still have old version (not overwritten)
+    local v
+    v=$(cat "$CACHE_DIR/.manifest-version")
+    if [ "$v" = "0.1.0" ]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: verify-only should not change version file, got: $v"
+    fi
+    teardown
+}
+
+# ---------- Test: No version in manifest — skips versioning logic ----------
+test_no_version_in_manifest() {
+    echo "--- test_no_version_in_manifest ---"
+    setup
+
+    echo -n "cached" > "$CACHE_DIR/x.bin"
+    local expected_md5
+    expected_md5=$(md5sum "$CACHE_DIR/x.bin" | awk '{print $1}')
+
+    cat > "$MANIFEST_PATH" <<EOF
+{
+  "models": [
+    {
+      "name": "x",
+      "url": "http://localhost:9999/x.bin",
+      "path": "x.bin",
+      "md5": "$expected_md5",
+      "size_mb": 0
+    }
+  ]
+}
+EOF
+
+    set +e
+    output=$("$ENTRYPOINT" 2>&1)
+    rc=$?
+    set -e
+
+    if [ "$rc" -ne 0 ]; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: expected exit 0, got $rc"
+    else
+        PASS=$((PASS + 1))
+    fi
+    # No version-related logs
+    if echo "$output" | grep -q "version"; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: should not mention version when manifest has no version field"
+    else
+        PASS=$((PASS + 1))
+    fi
+    # No version file written
+    assert_file_not_exists "$CACHE_DIR/.manifest-version"
+    teardown
+}
+
+# ---------- Test: Metrics file created on successful sync ----------
+test_metrics_written_on_success() {
+    echo "--- test_metrics_written_on_success ---"
+    setup
+
+    echo -n "data" > "$CACHE_DIR/m.bin"
+    local expected_md5
+    expected_md5=$(md5sum "$CACHE_DIR/m.bin" | awk '{print $1}')
+
+    cat > "$MANIFEST_PATH" <<EOF
+{
+  "models": [
+    {
+      "name": "m",
+      "url": "http://localhost:9999/m.bin",
+      "path": "m.bin",
+      "md5": "$expected_md5",
+      "size_mb": 0
+    }
+  ]
+}
+EOF
+
+    set +e
+    output=$("$ENTRYPOINT" 2>&1)
+    rc=$?
+    set -e
+
+    if [ "$rc" -ne 0 ]; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: expected exit 0, got $rc"
+    else
+        PASS=$((PASS + 1))
+    fi
+    assert_file_exists "$CACHE_DIR/.metrics"
+    assert_contains "Metrics written" "$output"
+    teardown
+}
+
+# ---------- Test: Metrics file contains Prometheus textfile format ----------
+test_metrics_prometheus_format() {
+    echo "--- test_metrics_prometheus_format ---"
+    setup
+
+    echo -n "content" > "$CACHE_DIR/p.bin"
+    local expected_md5
+    expected_md5=$(md5sum "$CACHE_DIR/p.bin" | awk '{print $1}')
+
+    cat > "$MANIFEST_PATH" <<EOF
+{
+  "models": [
+    {
+      "name": "p",
+      "url": "http://localhost:9999/p.bin",
+      "path": "p.bin",
+      "md5": "$expected_md5",
+      "size_mb": 1
+    }
+  ]
+}
+EOF
+
+    set +e
+    "$ENTRYPOINT" >/dev/null 2>&1
+    rc=$?
+    set -e
+
+    if [ "$rc" -ne 0 ]; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: expected exit 0, got $rc"
+        teardown
+        return
+    fi
+
+    local metrics_content
+    metrics_content=$(cat "$CACHE_DIR/.metrics")
+
+    assert_contains "# HELP model_cache_download_duration_seconds" "$metrics_content"
+    assert_contains "# TYPE model_cache_download_duration_seconds gauge" "$metrics_content"
+    assert_contains "model_cache_download_duration_seconds" "$metrics_content"
+    assert_contains "# HELP model_cache_size_bytes" "$metrics_content"
+    assert_contains "model_cache_size_bytes" "$metrics_content"
+    assert_contains "# HELP model_cache_files_total" "$metrics_content"
+    assert_contains "model_cache_files_total" "$metrics_content"
+    assert_contains "# HELP model_cache_errors_total" "$metrics_content"
+    assert_contains "model_cache_errors_total 0" "$metrics_content"
+    assert_contains "model_cache_files_skipped 1" "$metrics_content"
+    assert_contains "model_cache_files_downloaded 0" "$metrics_content"
+    assert_contains "model_cache_manifest_files_total 1" "$metrics_content"
+    assert_contains "model_cache_last_sync_timestamp_seconds" "$metrics_content"
+    teardown
+}
+
+# ---------- Test: Metrics.sh standalone ----------
+test_metrics_standalone() {
+    echo "--- test_metrics_standalone ---"
+    setup
+
+    export CACHE_DIR
+    export MANIFEST_PATH
+    mkdir -p "$CACHE_DIR/subdir"
+    echo -n "file1" > "$CACHE_DIR/one.bin"
+    echo -n "file2" > "$CACHE_DIR/subdir/two.bin"
+
+    set +e
+    output=$(bash "$SCRIPT_DIR/metrics.sh" 42 3 5 1 9 2>&1)
+    rc=$?
+    set -e
+
+    if [ "$rc" -ne 0 ]; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: metrics.sh expected exit 0, got $rc"
+        teardown
+        return
+    fi
+
+    assert_file_exists "$CACHE_DIR/.metrics"
+    local metrics_content
+    metrics_content=$(cat "$CACHE_DIR/.metrics")
+
+    assert_contains "model_cache_download_duration_seconds 42" "$metrics_content"
+    assert_contains "model_cache_files_downloaded 3" "$metrics_content"
+    assert_contains "model_cache_files_skipped 5" "$metrics_content"
+    assert_contains "model_cache_errors_total 1" "$metrics_content"
+    assert_contains "model_cache_manifest_files_total 9" "$metrics_content"
+    # Should count 2 actual files (excludes .metrics)
+    assert_contains "model_cache_files_total 2" "$metrics_content"
+    teardown
+}
+
+# ---------- Test: Metrics not written when entrypoint fails ----------
+test_metrics_not_on_failure() {
+    echo "--- test_metrics_not_on_failure ---"
+    setup
+
+    cat > "$MANIFEST_PATH" <<EOF
+{
+  "models": [
+    {
+      "name": "fail-model",
+      "url": "http://localhost:9999/no-server.bin",
+      "path": "fail.bin",
+      "md5": "abc123",
+      "size_mb": 0
+    }
+  ]
+}
+EOF
+
+    set +e
+    output=$("$ENTRYPOINT" 2>&1)
+    rc=$?
+    set -e
+
+    if [ "$rc" -ne 1 ]; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: expected exit 1, got $rc"
+    else
+        PASS=$((PASS + 1))
+    fi
+    # Metrics file should NOT exist because die() exits before metrics are written
+    assert_file_not_exists "$CACHE_DIR/.metrics"
+    teardown
+}
+
 # --- Run all tests ---
 echo "=== Running entrypoint.sh tests ==="
 echo ""
@@ -458,6 +935,17 @@ test_null_md5_skipped
 test_verify_only_env_var
 test_log_includes_filename
 test_empty_models
+test_version_match_incremental
+test_version_mismatch_clears_cache
+test_no_version_file_full_download
+test_version_written_on_success
+test_version_not_written_on_failure
+test_verify_only_ignores_version
+test_no_version_in_manifest
+test_metrics_written_on_success
+test_metrics_prometheus_format
+test_metrics_standalone
+test_metrics_not_on_failure
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
