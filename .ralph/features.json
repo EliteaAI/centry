@@ -14,7 +14,7 @@
           "description": "Socket.IO Redis Adapter configured in pylon_main",
           "validator": {
             "type": "file_contains",
-            "path": "centry/pylon_main/configs/pylon.yml",
+            "path": "centry/pylon_main/configs/shared.yml",
             "patterns": ["socketio:", "redis:", "host:"]
           },
           "passes": false

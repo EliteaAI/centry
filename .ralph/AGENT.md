@@ -254,5 +254,16 @@ test('health check returns ok for all pods', async ({ request }) => {
 - Gateway API HTTPRoutes (not Ingress) for routing
 - OIDC mock at oidc-mock.technicaldomain.xyz supports authorization_code flow
 
+### 2026-06-29: Task 1.1 - Socket.IO Redis Adapter
+- Config goes in `shared.yml` (NOT pylon.yml — that file doesn't exist in this project)
+- The `socketio.redis` section under `settings:` key activates `RedisManager` in pylon
+- Env var expansion happens BEFORE yaml.SafeLoader, so `${REDIS_SSL}` → `false` → boolean `False`
+- Requirements already present: `python-socketio[client]==5.15.0`, `redis==7.1.0`, `aioredis==2.0.1`
+- Test file: `centry/tests/unit/scaling/test_socketio_redis_adapter.py` (17 tests)
+- Cannot import pylon directly in tests (dependency chain: pylon→arbiter→pika, socketio not installed locally)
+- Solution: replicate URL construction logic for unit testing; test config integration via YAML parsing
+- Features validator (`.ralph/features.json`) expected pylon.yml → fixed to shared.yml
+- No Docker available in dev env, so Docker-level integration tests can't run locally
+
 ---
 *Last updated by Ralph iteration*

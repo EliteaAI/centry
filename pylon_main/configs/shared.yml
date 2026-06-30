@@ -11,6 +11,14 @@ settings:
   redis_password: ${REDIS_PASSWORD}
   redis_use_ssl: ${REDIS_SSL}
   #
+  socketio:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+      password: ${REDIS_PASSWORD}
+      use_ssl: ${REDIS_SSL}
+      queue: socketio
+  #
   force_inject_db: true
   #
   database_vendor: postgres

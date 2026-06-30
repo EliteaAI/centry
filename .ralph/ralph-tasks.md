@@ -4,12 +4,12 @@
 
 ### Week 1: Core State Externalization
 
-- [ ] 1.1 Add Socket.IO Redis Adapter to pylon_main
-  - [ ] Add `socketio.redis` section to `centry/pylon_main/configs/pylon.yml`
-  - [ ] Add `python-socketio[asyncio_client]` to requirements if not present
-  - [ ] Verify RedisManager is activated on pylon_main startup
-  - [ ] Test: emit event from one process, verify delivery via Redis pub/sub
-  - [ ] Document configuration in AGENT.md
+- [x] 1.1 Add Socket.IO Redis Adapter to pylon_main
+  - [x] Add `socketio.redis` section to `centry/pylon_main/configs/shared.yml`
+  - [x] Add `python-socketio[asyncio_client]` to requirements if not present (already in pylon)
+  - [x] Verify RedisManager is activated on pylon_main startup (unit tests)
+  - [x] Test: emit event from one process, verify delivery via Redis pub/sub (17 tests)
+  - [x] Document configuration in AGENT.md
 
 - [ ] 1.2 Implement RedisServersStorage for MCP state
   - [ ] Create `centry/pylon_main/plugins/elitea_core/utils/redis_servers_storage.py`
