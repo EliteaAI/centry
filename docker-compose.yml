@@ -19,6 +19,7 @@ services:
   postgres:
     image: pgvector/pgvector:0.8.1-pg18
     restart: unless-stopped
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
     logging:
       driver: "json-file"
       options:
@@ -31,6 +32,7 @@ services:
       - PGDATA=/data/pgdata
     volumes:
       - postgres-data:/data
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
     networks:
       - centry
 
