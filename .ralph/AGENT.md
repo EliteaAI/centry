@@ -506,5 +506,68 @@ test('health check returns ok for all pods', async ({ request }) => {
 - 85 tests total across 5 test files, all passing
 - Mocking pattern for Playwright `Page`: create `createMockPage()` factory returning object with `locator`, `waitForLoadState`, `goto`, `context`, etc. — cast as `any` when constructing page objects
 
+### 2026-06-30: Task 6.13 - Add Validation Gates (Automated Tests)
+- Gate tests live at `centry/tests/gates/` with three phase-specific test files
+- `test_phase_1_gate.py` already existed (created in earlier iteration) — validates state externalization, Redis TTLs, health endpoints, Socket.IO adapter
+- Created `test_phase_2_gate.py`: validates distributed locks (mutual exclusion, TTL auto-release, safe release via Lua script), Canvas optimistic locking (WATCH+MULTI/EXEC, version conflicts), auth sessions in Redis, GETDEL exactly-once task results, disconnect cleanup pub/sub
+- Created `test_phase_3_gate.py`: validates health endpoint responses, concurrent health checks, rolling update simulation (rapid requests), stateless pod design (cross-connection Redis access), degraded state reporting, database connection pooling headroom
+- CI workflow at `centry/.github/workflows/gate-tests.yml`:
+  - Triggered on PRs to main/develop touching relevant paths
+  - Uses Redis and PostgreSQL service containers
+  - Runs each phase gate test separately, skipping tests that require live pylon_main (HTTP endpoint tests)
+  - `-k "not ..."` filters exclude tests needing running pylon services in CI (those run in staging)
+- Gate tests use `conftest.py` fixtures: `redis_client` (session-scoped), `pg_connection`, `gate_key_prefix` (UUID-based, prevents collisions)
+- All gate test keys have short TTLs and are explicitly deleted in each test — safe to run against shared Redis
+- Pattern: gate tests validate *invariants* (data model contracts, key patterns, TTLs) not *features* — they prove the scaling architecture holds even without live services
+
+## Gate Tests
+
+### Purpose
+Gate tests validate scaling invariants at each phase boundary. They are the last automated check before a phase is considered complete and mergeable to main.
+
+### Running Locally
+```bash
+cd centry
+
+# Requires Redis running on localhost:6379 and PostgreSQL on localhost:5432
+# Start them via Docker:
+#   docker run -d --name redis-gate -p 6379:6379 redis:7-alpine
+#   docker run -d --name pg-gate -p 5432:5432 -e POSTGRES_USER=centry -e POSTGRES_PASSWORD=centry -e POSTGRES_DB=centry postgres:15-alpine
+
+# Install dependencies (not in centry venv by default):
+pip install pytest pytest-timeout redis requests psycopg2-binary
+
+# Run all gate tests
+python3 -m pytest tests/gates/ -v
+
+# Run specific phase
+python3 -m pytest tests/gates/test_phase_1_gate.py -v
+python3 -m pytest tests/gates/test_phase_2_gate.py -v
+python3 -m pytest tests/gates/test_phase_3_gate.py -v
+
+# Skip tests requiring live pylon_main (CI mode):
+python3 -m pytest tests/gates/ -v -k "not TestHealthEndpoints and not TestMultiPodHealthChecks and not TestRollingUpdateZeroDowntime and not TestDegradedState"
+```
+
+### Environment Variables
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GATE_REDIS_HOST` | `localhost` | Redis host for gate tests |
+| `GATE_REDIS_PORT` | `6379` | Redis port |
+| `REDIS_PASSWORD` | `` | Redis password (empty for local) |
+| `GATE_PYLON_MAIN_URL` | `http://localhost:80` | pylon_main base URL |
+| `GATE_PG_HOST` | `localhost` | PostgreSQL host |
+| `GATE_PG_PORT` | `5432` | PostgreSQL port |
+| `GATE_PG_USER` | `centry` | PostgreSQL user |
+| `GATE_PG_PASSWORD` | `centry` | PostgreSQL password |
+| `GATE_PG_DATABASE` | `centry` | PostgreSQL database |
+
+### CI Integration
+Gate tests run automatically on PRs via `.github/workflows/gate-tests.yml`. Tests requiring live pylon services are excluded in CI (they're validated in staging E2E tests instead). The CI-safe subset validates:
+- Redis data model contracts (key patterns, TTLs, atomic operations)
+- PostgreSQL connection budget (max_connections, active count)
+- Lock semantics (mutual exclusion, auto-release, safe release)
+- Canvas optimistic locking (WATCH/MULTI/EXEC)
+
 ---
 *Last updated by Ralph iteration*
