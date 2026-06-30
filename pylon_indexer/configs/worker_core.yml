@@ -14,6 +14,8 @@ event_node:
 tasknode_tmp: /data/cache/tasknode
 task_queue_debug: true
 
+result_transport: redis
+
 preloaded_models_enabled: false
 preloaded_models: []
 
