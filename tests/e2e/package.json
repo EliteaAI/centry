@@ -11,6 +11,7 @@
     "test:scaling": "playwright test specs/socket-io-scaling.spec.ts",
     "test:session": "playwright test specs/session-persistence.spec.ts",
     "test:resilience": "playwright test specs/connection-resilience.spec.ts",
+    "test:ui-resilience": "playwright test specs/ui-resilience.spec.ts",
     "test:login": "playwright test specs/oidc-login.spec.ts",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
