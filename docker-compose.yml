@@ -236,9 +236,92 @@ services:
     networks:
       - centry
 
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    networks:
+      - centry
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - centry
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.73.0
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    env_file:
+      - ./envs/default.env
+      - ./envs/override.env
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+      - REDIS_EXPORTER_INCL_SYSTEM_METRICS=true
+    entrypoint: sh -c 'exec /redis_exporter --redis.password=$$REDIS_PASSWORD'
+    depends_on:
+      - redis
+    networks:
+      - centry
+
+  pgbouncer-exporter:
+    image: prometheuscommunity/pgbouncer-exporter:v0.10.2
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    environment:
+      - PGBOUNCER_EXPORTER_HOST=pgbouncer
+      - PGBOUNCER_EXPORTER_PORT=6432
+      - PGBOUNCER_EXPORTER_USER=pgbouncer_stats
+      - PGBOUNCER_EXPORTER_PASS=
+    depends_on:
+      - pgbouncer
+    networks:
+      - centry
+
 volumes:
   redis-data:
   postgres-data:
+  prometheus-data:
+  grafana-data:
 
 networks:
   centry:

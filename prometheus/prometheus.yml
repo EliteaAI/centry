@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "pylon_main"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["pylon_main:8080"]
+        labels:
+          service: "pylon-main"
+
+  - job_name: "pgbouncer"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["pgbouncer-exporter:9127"]
+        labels:
+          service: "pgbouncer"
+
+  - job_name: "redis"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+        labels:
+          service: "redis"
