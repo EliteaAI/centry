@@ -34,6 +34,28 @@ services:
     networks:
       - centry
 
+  pgbouncer:
+    image: pgbouncer/pgbouncer:latest
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - centry
+
   pylon_auth:
     image: ghcr.io/eliteaai/pylon:1.2.25
     restart: unless-stopped
@@ -105,6 +127,33 @@ services:
       - ./ssl:/ssl
     depends_on:
       - redis
+    networks:
+      - centry
+
+  pylon_gateway:
+    image: ghcr.io/eliteaai/pylon:1.2.25
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    env_file:
+      - ./envs/default.env
+      - ./envs/override.env
+    environment:
+      - NAME=pylon-gateway
+      - PYLON_WEB_RUNTIME=gevent
+      - PYLON_CONFIG_SEED=file:/data/pylon.yml
+    volumes:
+      - ./pylon_gateway:/data
+      - ./ssl:/ssl
+    ports:
+      - "8082:8080"
+    depends_on:
+      - redis
+      - postgres
+      - pylon_auth
     networks:
       - centry
 
