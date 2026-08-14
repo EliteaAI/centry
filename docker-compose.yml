@@ -134,7 +134,6 @@ services:
     volumes:
       - ./pylon_sandbox:/data
       - ./ssl:/ssl
-      - ../plugins/sandbox_runner:/data/plugins/sandbox_runner
     depends_on:
       - redis
     networks:
