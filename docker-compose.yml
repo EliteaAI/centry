@@ -108,6 +108,37 @@ services:
     networks:
       - centry
 
+  pylon_sandbox:
+    build:
+      context: ./pylon_sandbox
+      dockerfile: Containerfile
+    restart: unless-stopped
+    mem_limit: 2g
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"
+        max-size: "10m"
+    env_file:
+      - ./envs/default.env
+      - ./envs/override.env
+    environment:
+      - NAME=pylon-sandbox
+      - PYLON_WEB_RUNTIME=waitress
+      - PYLON_CONFIG_SEED=file:/data/pylon.yml
+      - SANDBOX_AUTH_TOKEN=${SANDBOX_AUTH_TOKEN}
+      - WAITRESS_THREADS=20
+      - WAITRESS_CHANNEL_TIMEOUT=70
+      - WAITRESS_RECV_BYTES=33554432
+      - WAITRESS_MAX_REQUEST_BODY_SIZE=33554432
+    volumes:
+      - ./pylon_sandbox:/data
+      - ./ssl:/ssl
+    depends_on:
+      - redis
+    networks:
+      - centry
+
 volumes:
   redis-data:
   postgres-data:

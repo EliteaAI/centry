@@ -1,0 +1,44 @@
+FROM ghcr.io/eliteaai/pylon:1.2.25
+
+ARG DENO_VERSION=2.5.6
+ARG PYODIDE_VERSION=0.29.3
+
+ENV SANDBOX_BASE=/opt/sandbox
+ENV DENO_DIR=/opt/sandbox/.cache/deno
+
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl unzip ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Deno
+RUN mkdir -p ${SANDBOX_BASE}/bin && \
+    ARCH=$(dpkg --print-architecture | sed 's/amd64/x86_64/;s/arm64/aarch64/') && \
+    curl -fsSL "https://dl.deno.land/release/v${DENO_VERSION}/deno-${ARCH}-unknown-linux-gnu.zip" -o /tmp/deno.zip && \
+    unzip /tmp/deno.zip -d ${SANDBOX_BASE}/bin && \
+    chmod +x ${SANDBOX_BASE}/bin/deno && \
+    rm /tmp/deno.zip
+
+# Install Pyodide
+RUN mkdir -p ${SANDBOX_BASE}/pyodide && \
+    curl -fsSL "https://github.com/pyodide/pyodide/releases/download/${PYODIDE_VERSION}/pyodide-${PYODIDE_VERSION}.tar.bz2" | \
+    tar -xj -C ${SANDBOX_BASE}/pyodide --strip-components=1
+
+# Pre-download offline wheels (pure-Python only, for Pyodide/micropip)
+RUN pip download --no-deps --only-binary=:all: \
+    --platform any --python-version 3 --abi none --implementation py \
+    --dest ${SANDBOX_BASE}/pyodide \
+    dill 'chardet<6'
+
+# Sandbox JS entrypoint is volume-mounted at runtime from the sandbox_runner plugin.
+# Pre-cache the pyodide npm package so first execution is faster.
+RUN ${SANDBOX_BASE}/bin/deno cache --no-check "npm:pyodide@${PYODIDE_VERSION}" 2>/dev/null || true
+
+# Ensure sandbox assets are readable by non-root
+RUN chmod -R a+rX ${SANDBOX_BASE}
+
+ENV PATH="${SANDBOX_BASE}/bin:${PATH}"
+
+# Drop back to non-root for runtime
+USER 1000

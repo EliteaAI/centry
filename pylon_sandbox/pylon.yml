@@ -1,0 +1,59 @@
+#
+# General server config
+#
+
+server:
+  name: ${NAME}
+  path: /
+  host: "0.0.0.0"
+  port: 8080
+  health:
+    healthz: true
+    livez: true
+    readyz: true
+  waitress:
+    threads: 20
+    channel_timeout: 70
+    max_request_body_size: 33554432
+    recv_bytes: 33554432
+
+#
+# Logging
+#
+log:
+  level: info
+
+#
+# Pylon DB
+#
+pylon_db:
+  engine_url: sqlite:////data/pylon.db
+
+#
+# Local paths to modules and config
+#
+modules:
+  plugins:
+    provider:
+      type: folder
+      path: /data/plugins
+  #
+  requirements:
+    mode: relaxed
+    activation: bulk
+    cache: /data/cache/pip
+    provider:
+      type: folder
+      path: /data/requirements
+  #
+  config:
+    provider:
+      type: folder
+      path: /data/configs
+
+#
+# Environment configuration
+#
+environment:
+  SANDBOX_BASE: /opt/sandbox
+  DENO_DIR: /opt/sandbox/.cache/deno
