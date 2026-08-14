@@ -31,11 +31,9 @@ RUN pip download --no-deps --only-binary=:all: \
     --dest ${SANDBOX_BASE}/pyodide \
     dill 'chardet<6'
 
-# Copy sandbox JS entrypoint
-COPY plugins/sandbox_runner/data/sandbox/ ${SANDBOX_BASE}/sandbox/
-
-# Warm Deno cache (compiles main.js ahead of time)
-RUN ${SANDBOX_BASE}/bin/deno cache ${SANDBOX_BASE}/sandbox/main.js 2>/dev/null || true
+# Sandbox JS entrypoint is volume-mounted at runtime from the sandbox_runner plugin.
+# Pre-cache the pyodide npm package so first execution is faster.
+RUN ${SANDBOX_BASE}/bin/deno cache --no-check "npm:pyodide@${PYODIDE_VERSION}" 2>/dev/null || true
 
 # Ensure sandbox assets are readable by non-root
 RUN chmod -R a+rX ${SANDBOX_BASE}

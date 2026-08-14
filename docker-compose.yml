@@ -126,7 +126,7 @@ services:
       - NAME=pylon-sandbox
       - PYLON_WEB_RUNTIME=waitress
       - PYLON_CONFIG_SEED=file:/data/pylon.yml
-      - SANDBOX_AUTH_TOKEN=${SANDBOX_AUTH_TOKEN:-dev-sandbox-token}
+      - SANDBOX_AUTH_TOKEN=${SANDBOX_AUTH_TOKEN}
       - WAITRESS_THREADS=20
       - WAITRESS_CHANNEL_TIMEOUT=70
       - WAITRESS_RECV_BYTES=33554432
