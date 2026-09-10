@@ -50,4 +50,7 @@ preordered_plugins:
 #
 - runtime_interface_litellm
 #
+- costs
+- usage
+#
 - tracing
