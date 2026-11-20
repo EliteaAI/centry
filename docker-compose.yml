@@ -35,7 +35,7 @@ services:
       - centry
 
   pylon_auth:
-    image: ghcr.io/eliteaai/pylon:1.2.25
+    image: ghcr.io/eliteaai/pylon:1.2.31
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -59,7 +59,7 @@ services:
       - centry
 
   pylon_main:
-    image: ghcr.io/eliteaai/pylon:1.2.25
+    image: ghcr.io/eliteaai/pylon:1.2.31
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -86,7 +86,7 @@ services:
       - centry
 
   pylon_indexer:
-    image: ghcr.io/eliteaai/pylon:1.2.25
+    image: ghcr.io/eliteaai/pylon:1.2.31
     restart: unless-stopped
     logging:
       driver: "json-file"
