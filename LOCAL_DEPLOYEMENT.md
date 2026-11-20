@@ -321,7 +321,7 @@ APP_HOST=localhost
 Run this command exactly:
 
 ```bash
-podman run --rm --entrypoint= ghcr.io/eliteaai/pylon:1.2.25 \
+podman run --rm --entrypoint= ghcr.io/eliteaai/pylon:1.2.31 \
   python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
 ```
 
@@ -429,9 +429,9 @@ The default `docker-compose.yml` starts:
 |--------|-------|---------|
 | `redis` | `redis:8.2.4-alpine` | Redis queues / sessions / event transport |
 | `postgres` | `pgvector/pgvector:0.8.1-pg18` | Main PostgreSQL database |
-| `pylon_auth` | `ghcr.io/eliteaai/pylon:1.2.25` | authentication service |
-| `pylon_main` | `ghcr.io/eliteaai/pylon:1.2.25` | main web platform |
-| `pylon_indexer` | `ghcr.io/eliteaai/pylon:1.2.25` | background/indexing service |
+| `pylon_auth` | `ghcr.io/eliteaai/pylon:1.2.31` | authentication service |
+| `pylon_main` | `ghcr.io/eliteaai/pylon:1.2.31` | main web platform |
+| `pylon_indexer` | `ghcr.io/eliteaai/pylon:1.2.31` | background/indexing service |
 
 ---
 
@@ -1039,7 +1039,7 @@ cp envs/default.env envs/override.env
 
 ### Generate `SECRETS_MASTER_KEY`
 ```bash
-podman run --rm --entrypoint= ghcr.io/eliteaai/pylon:1.2.25 \
+podman run --rm --entrypoint= ghcr.io/eliteaai/pylon:1.2.31 \
   python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
 ```
 
